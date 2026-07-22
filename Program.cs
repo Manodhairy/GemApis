@@ -1,4 +1,8 @@
 using GemApi.Data;
+using GemApi.Repository;
+using GemApi.Repository.Interfaces;
+using GemApi.Services;
+using GemApi.Services.Interfaces;
 using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -9,7 +13,9 @@ var connectionString=builder.Configuration.GetConnectionString("DefaultConnectio
 
 builder.Services.AddDbContext<ApplicationDbContext>(options => options.UseSqlServer(connectionString));
 
-
+builder.Services.AddAutoMapper(cfg => { }, AppDomain.CurrentDomain.GetAssemblies());
+builder.Services.AddScoped<IGeMBidRepository, GeMBidRepository>();
+builder.Services.AddScoped<IGeMBidService, GeMBidService>();
 
 builder.Services.AddControllers();
 // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle

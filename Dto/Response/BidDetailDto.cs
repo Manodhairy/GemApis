@@ -14,6 +14,5 @@
         public DateTime? BidEndDateTime { get; set; }
         public string? EvaluationMethod { get; set; }
         public string? PdfUrl { get; set; }
-        public string? JsonData { get; set; }
     }
 }

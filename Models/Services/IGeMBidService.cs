@@ -9,5 +9,9 @@ namespace GemApi.Services.Interfaces
         Task<BidDetailDto?> GetBidDetailsAsync(string bidNumber);
         Task<FilterDto> GetFiltersAsync(BidFilterRequestDto request);
         Task<DashboardDto> GetDashboardAsync();
+
+        Task<BidNotificationSummaryDto>GetNotificationSummaryAsync(
+                int lastProcessedBidId,
+                int currentMaximumBidId);
     }
 }

@@ -1,10 +1,25 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations.Schema;
+using Microsoft.EntityFrameworkCore;
 
 namespace GemApi.Models.Entity;
 
+[Table("GeMBidExtracts")]
+[Index("BidEndDateTime", Name = "IX_GeMBidExtracts_BidEndDateTime")]
+[Index("BidEndDateTime", "CreatedOn", Name = "IX_GeMBidExtracts_BidEndDateTime_CreatedOn")]
+[Index("CategoryKey", Name = "IX_GeMBidExtracts_CategoryKey")]
+[Index("CreatedOn", Name = "IX_GeMBidExtracts_CreatedOn")]
+[Index("DepartmentName", Name = "IX_GeMBidExtracts_DepartmentName")]
+[Index("EmdAmount", Name = "IX_GeMBidExtracts_EmdAmount")]
+[Index("ItemCategory", Name = "IX_GeMBidExtracts_ItemCategory")]
+[Index("Ministry", Name = "IX_GeMBidExtracts_Ministry")]
+[Index("OrganisationName", Name = "IX_GeMBidExtracts_OrganisationName")]
+[Index("CategorySubKey", Name = "IX_gembidextracts_CategorySubKey")]
 public partial class GeMbidExtract
 {
+    [Key]
     public int Id { get; set; }
 
     public string? BidNumber { get; set; }
@@ -37,6 +52,7 @@ public partial class GeMbidExtract
 
     public string? ItemCategory { get; set; }
 
+    [Column("BOQTitle")]
     public string? Boqtitle { get; set; }
 
     public string? PrimaryProductCategory { get; set; }
@@ -47,6 +63,7 @@ public partial class GeMbidExtract
 
     public string? MinimumAverageAnnualTurnover { get; set; }
 
+    [Column("OEMAverageTurnover")]
     public string? OemaverageTurnover { get; set; }
 
     public string? YearsOfPastExperienceRequired { get; set; }
@@ -61,8 +78,10 @@ public partial class GeMbidExtract
 
     public int? NumberOfAutoExtensionCount { get; set; }
 
+    [Column("BidToRAEnabled")]
     public bool? BidToRaenabled { get; set; }
 
+    [Column("RAQualificationRule")]
     public string? RaqualificationRule { get; set; }
 
     public bool? InspectionRequired { get; set; }
@@ -73,22 +92,30 @@ public partial class GeMbidExtract
 
     public string? InspectionAgency { get; set; }
 
+    [Column(TypeName = "decimal(18, 2)")]
     public decimal? EstimatedBidValue { get; set; }
 
+    [Column(TypeName = "decimal(18, 2)")]
     public decimal? EmdAmount { get; set; }
 
+    [Column("EPBGPercentage", TypeName = "decimal(18, 2)")]
     public decimal? Epbgpercentage { get; set; }
 
+    [Column("EPBGDurationMonths")]
     public int? EpbgdurationMonths { get; set; }
 
     public string? AdvisoryBank { get; set; }
 
+    [Column("MSEPurchasePreference")]
     public bool? MsepurchasePreference { get; set; }
 
+    [Column("MIIPurchasePreference")]
     public bool? MiipurchasePreference { get; set; }
 
+    [Column(TypeName = "decimal(18, 2)")]
     public decimal? PurchasePreferencePercentage { get; set; }
 
+    [Column(TypeName = "decimal(18, 2)")]
     public decimal? MaximumPurchasePreferencePercentage { get; set; }
 
     public string? ArbitrationClause { get; set; }
@@ -117,8 +144,10 @@ public partial class GeMbidExtract
 
     public string? TrainingModule { get; set; }
 
+    [Column("GeMARPTSSearchedStrings")]
     public string? GeMarptssearchedStrings { get; set; }
 
+    [Column("GeMARPTSSearchedResults")]
     public string? GeMarptssearchedResults { get; set; }
 
     public string? RelevantCategoriesSelectedForNotification { get; set; }
@@ -137,18 +166,22 @@ public partial class GeMbidExtract
 
     public string? PaymentTimelines { get; set; }
 
+    [Column("AutoCRACDays")]
     public string? AutoCracdays { get; set; }
 
     public string? FinancialDocumentRequired { get; set; }
 
     public string? Required { get; set; }
 
+    [Column("ITCAvailableToBuyer")]
     public string? ItcavailableToBuyer { get; set; }
 
+    [Column("MIICompliance")]
     public string? Miicompliance { get; set; }
 
     public string? BuyerSpecificationDocument { get; set; }
 
+    [Column("BOQDetailDocument")]
     public string? BoqdetailDocument { get; set; }
 
     public string? SpecificationDocument { get; set; }
@@ -158,4 +191,16 @@ public partial class GeMbidExtract
     public string? CategoryKey { get; set; }
 
     public string? CategorySubKey { get; set; }
+
+    public string? CardDepartment { get; set; }
+
+    public DateTime? CardEndDate { get; set; }
+
+    public string? CardItemName { get; set; }
+
+    public string? CardMinistry { get; set; }
+
+    public int? CardQuantity { get; set; }
+
+    public DateTime? CardStartDate { get; set; }
 }

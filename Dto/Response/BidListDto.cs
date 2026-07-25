@@ -156,5 +156,17 @@
         public string? CategoryKey { get; set; }
 
         public string? CategorySubKey { get; set; }
+
+        public string? CardDepartment { get; set; }
+
+        public DateTime? CardEndDate { get; set; }
+
+        public string? CardItemName { get; set; }
+
+        public string? CardMinistry { get; set; }
+
+        public int? CardQuantity { get; set; }
+
+        public DateTime? CardStartDate { get; set; }
     }
 }

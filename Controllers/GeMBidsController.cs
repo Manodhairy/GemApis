@@ -15,7 +15,7 @@ namespace GemApi.Controllers
             _service = service;
         }
 
-        // GET api/gembids?search=...&ministry=...&active=true&pageNumber=1&pageSize=20
+        
         [HttpGet]
         public async Task<IActionResult> GetBids([FromQuery] BidFilterRequestDto request)
         {

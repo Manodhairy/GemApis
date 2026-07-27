@@ -21,10 +21,13 @@
         public bool? Expired { get; set; }
 
         // Date Filters
-        public DateTime? BidDateFrom { get; set; }
-        public DateTime? BidDateTo { get; set; }
-        public DateTime? ClosingDateFrom { get; set; }
-        public DateTime? ClosingDateTo { get; set; }
+       
+        //public DateTime? ClosingDateFrom { get; set; }
+        //public DateTime? ClosingDateTo { get; set; }
+
+        public DateTime? CardStartDate { get; set; }
+
+        public DateTime? CardEndDate { get; set; }
 
         // Price Filters
         public decimal? MinEstimatedValue { get; set; }

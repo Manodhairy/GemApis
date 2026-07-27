@@ -8,9 +8,6 @@
 
         public DateTime CreatedOn { get; set; }
 
-        public DateTime? BidEndDateTime { get; set; }
-
-        public DateTime? BidOpeningDateTime { get; set; }
 
         public bool IsClosingSoon { get; set; }
 

@@ -88,27 +88,8 @@ namespace GemApi.Services
                         Summary
                     </h2>
 
-                    <table style="
-                        width:100%;
-                        border-collapse:collapse;
-                        margin-top:12px;
-                        font-size:14px;">
-
-                        <tr>
-                            <td style="
-                                padding:12px;
-                                border:1px solid #d1d5db;
-                                background:#eff6ff;
-                                font-weight:bold;">
-                                Minimum notification count
-                            </td>
-
-                            <td style="
-                                padding:12px;
-                                border:1px solid #d1d5db;">
-                                {minimumRecordCount}
-                            </td>
-                        </tr>
+                    
+                      
 
                         <tr>
                             <td style="
@@ -143,106 +124,11 @@ namespace GemApi.Services
                                 {summary.TotalRecordCount}
                             </td>
                         </tr>
-
-                        <tr>
-                            <td style="
-                                padding:12px;
-                                border:1px solid #d1d5db;
-                                background:#eff6ff;
-                                font-weight:bold;">
-                                CreatedOn From
-                            </td>
-
-                            <td style="
-                                padding:12px;
-                                border:1px solid #d1d5db;">
-                                {summary.CreatedOnFrom:dd-MM-yyyy hh:mm tt}
-                            </td>
-                        </tr>
-
-                        <tr>
-                            <td style="
-                                padding:12px;
-                                border:1px solid #d1d5db;
-                                background:#eff6ff;
-                                font-weight:bold;">
-                                CreatedOn To
-                            </td>
-
-                            <td style="
-                                padding:12px;
-                                border:1px solid #d1d5db;">
-                                {summary.CreatedOnTo:dd-MM-yyyy hh:mm tt}
-                            </td>
                         </tr>
                     </table>
                 """);
 
-            // CreatedOn date-wise table
-            html.Append("""
-                    <h2 style="
-                        margin-top:30px;
-                        font-size:19px;
-                        color:#1d4ed8;">
-                        CreatedOn Date-wise Count
-                    </h2>
-
-                    <table style="
-                        width:100%;
-                        border-collapse:collapse;
-                        margin-top:12px;
-                        font-size:14px;">
-
-                        <thead>
-                            <tr style="
-                                background-color:#1d4ed8;
-                                color:#ffffff;">
-
-                                <th style="
-                                    padding:12px;
-                                    border:1px solid #d1d5db;
-                                    text-align:left;">
-                                    Date
-                                </th>
-
-                                <th style="
-                                    padding:12px;
-                                    border:1px solid #d1d5db;
-                                    text-align:center;">
-                                    Record Count
-                                </th>
-                            </tr>
-                        </thead>
-
-                        <tbody>
-                """);
-
-            foreach (var item in summary.CreatedDateCounts)
-            {
-                html.Append($"""
-                    <tr>
-                        <td style="
-                            padding:11px;
-                            border:1px solid #d1d5db;">
-                            {item.Date:dd-MM-yyyy}
-                        </td>
-
-                        <td style="
-                            padding:11px;
-                            border:1px solid #d1d5db;
-                            text-align:center;
-                            font-weight:bold;">
-                            {item.Count}
-                        </td>
-                    </tr>
-                """);
-            }
-
-            html.Append("""
-                        </tbody>
-                    </table>
-                """);
-
+          
             // Category table
             html.Append("""
                     <h2 style="

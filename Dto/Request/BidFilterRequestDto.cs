@@ -41,7 +41,7 @@
         public bool? MIIPurchasePreference { get; set; }
 
         // Sorting
-        public string SortBy { get; set; } = "BidEndDateTime";
+        public string SortBy { get; set; } = "CardEndDate";
         public bool Descending { get; set; } = false;
 
         // Pagination

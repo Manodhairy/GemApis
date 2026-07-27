@@ -221,22 +221,22 @@ namespace GemApi.Services
                 Active =
                     await statusBase.CountAsync(
                         x =>
-                            x.BidEndDateTime
+                            x.CardEndDate
                             >= now),
 
                 ClosingSoon =
                     await statusBase.CountAsync(
                         x =>
-                            x.BidEndDateTime
+                            x.CardEndDate
                             >= now
                             &&
-                            x.BidEndDateTime
+                            x.CardEndDate
                             <= now.AddDays(3)),
 
                 Expired =
                     await statusBase.CountAsync(
                         x =>
-                            x.BidEndDateTime
+                            x.CardEndDate
                             < now)
             };
 
@@ -267,22 +267,22 @@ namespace GemApi.Services
                 ActiveBids =
                     await query.CountAsync(
                         x =>
-                            x.BidEndDateTime
+                            x.CardEndDate
                             >= now),
 
                 ClosingSoon =
                     await query.CountAsync(
                         x =>
-                            x.BidEndDateTime
+                            x.CardEndDate
                             >= now
                             &&
-                            x.BidEndDateTime
+                            x.CardEndDate
                             <= now.AddDays(3)),
 
                 ExpiredBids =
                     await query.CountAsync(
                         x =>
-                            x.BidEndDateTime
+                            x.CardEndDate
                             < now),
 
                 TotalMinistries =
@@ -364,24 +364,25 @@ namespace GemApi.Services
                 if (request.Active == true)
                 {
                     query = query.Where(x =>
-                        x.BidEndDateTime
+                        x.CardEndDate
                         >= DateTime.Now);
                 }
 
                 if (request.ClosingSoon == true)
                 {
                     query = query.Where(x =>
-                        x.BidEndDateTime
+                        x.CardEndDate
+
                         >= DateTime.Now
                         &&
-                        x.BidEndDateTime
+                        x.CardEndDate
                         <= DateTime.Now.AddDays(3));
                 }
 
                 if (request.Expired == true)
                 {
                     query = query.Where(x =>
-                        x.BidEndDateTime
+                        x.CardEndDate
                         < DateTime.Now);
                 }
             }
@@ -451,34 +452,34 @@ namespace GemApi.Services
             }
 
             // BID DATE
-            if (request.BidDateFrom.HasValue)
+            if (request.CardStartDate.HasValue)
             {
                 query = query.Where(x =>
-                    x.BidDate >=
-                    request.BidDateFrom);
+                    x.CardStartDate >=
+                    request.CardStartDate);
             }
 
-            if (request.BidDateTo.HasValue)
+            if (request.CardEndDate.HasValue)
             {
                 query = query.Where(x =>
-                    x.BidDate <=
-                    request.BidDateTo);
+                    x.CardStartDate <=
+                    request.CardEndDate);
             }
 
-            // CLOSING DATE
-            if (request.ClosingDateFrom.HasValue)
-            {
-                query = query.Where(x =>
-                    x.BidEndDateTime >=
-                    request.ClosingDateFrom);
-            }
+            //// CLOSING DATE
+            //if (request.CardEndDate.HasValue)
+            //{
+            //    query = query.Where(x =>
+            //        x.CardEndDate >=
+            //        request.CardEndDate);
+            //}
 
-            if (request.ClosingDateTo.HasValue)
-            {
-                query = query.Where(x =>
-                    x.BidEndDateTime <=
-                    request.ClosingDateTo);
-            }
+            //if (request.ClosingDateTo.HasValue)
+            //{
+            //    query = query.Where(x =>
+            //        x.CardEndDate <=
+            //        request.ClosingDateTo);
+            //}
 
             // ESTIMATED VALUE
             if (request.MinEstimatedValue.HasValue)
@@ -574,9 +575,9 @@ namespace GemApi.Services
                 default:
                     return request.Descending
                         ? query.OrderByDescending(
-                            x => x.BidEndDateTime)
+                            x => x.CardStartDate)
                         : query.OrderBy(
-                            x => x.BidEndDateTime);
+                            x => x.CardEndDate);
             }
         }
 

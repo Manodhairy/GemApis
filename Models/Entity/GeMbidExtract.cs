@@ -141,8 +141,7 @@ public partial class GeMbidExtract
     public string? ServiceRequirement { get; set; }
 
     public string? ServiceInclusions { get; set; }
-
-    public string? TrainingModule { get; set; }
+      public string? TrainingModule { get; set; }
 
     [Column("GeMARPTSSearchedStrings")]
     public string? GeMarptssearchedStrings { get; set; }

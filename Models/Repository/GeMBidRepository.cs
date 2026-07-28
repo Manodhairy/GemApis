@@ -1,9 +1,8 @@
 ﻿using GemApi.Data;
 using GemApi.Models.Entity;
-using GemApi.Repository.Interfaces;
 using Microsoft.EntityFrameworkCore;
 
-namespace GemApi.Repository
+namespace GemApi.Models.Repository
 {
     public class GeMBidRepository : IGeMBidRepository
     {

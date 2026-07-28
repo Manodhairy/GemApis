@@ -8,6 +8,7 @@
         // Organization Filters
         public string? Ministry { get; set; }
         public string? DepartmentName { get; set; }
+   
         public string? OrganisationName { get; set; }
         public string? OfficeName { get; set; }
 

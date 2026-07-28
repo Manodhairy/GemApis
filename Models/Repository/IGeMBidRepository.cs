@@ -1,6 +1,6 @@
 ﻿using GemApi.Models.Entity;
 
-namespace GemApi.Repository.Interfaces
+namespace GemApi.Models.Repository
 {
     public interface IGeMBidRepository
     {

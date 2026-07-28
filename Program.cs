@@ -1,7 +1,6 @@
 ﻿using GemApi.BackgroundServices;
 using GemApi.Data;
-using GemApi.Repository;
-using GemApi.Repository.Interfaces;
+using GemApi.Models.Repository;
 using GemApi.Services;
 using GemApi.Services.Interfaces;
 using GemApi.Settings;

@@ -2,7 +2,7 @@
 using GemApi.DTOs.Request;
 using GemApi.DTOs.Response;
 using GemApi.Models.Entity;
-using GemApi.Repository.Interfaces;
+using GemApi.Models.Repository;
 using GemApi.Services.Interfaces;
 using Microsoft.EntityFrameworkCore;
 

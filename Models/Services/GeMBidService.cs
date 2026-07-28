@@ -10,6 +10,9 @@ namespace GemApi.Services
 {
     public class GeMBidService : IGeMBidService
     {
+        // Single source of truth for the "closing soon" window (in days before CardEndDate)
+        private const int ClosingSoonWindowDays = 1;
+
         private readonly IGeMBidRepository _repository;
         private readonly IMapper _mapper;
 
@@ -51,6 +54,15 @@ namespace GemApi.Services
             var dtoList =
                 _mapper.Map<List<BidListDto>>(
                     entities);
+
+            // Populate computed status flags (mapper only maps entity fields 1:1,
+            // so status is derived here using CardStartDate/CardEndDate only)
+            var now = DateTime.Now;
+            foreach (var (dto, entity) in dtoList.Zip(entities, (d, e) => (d, e)))
+            {
+                dto.IsActive = IsActive(entity.CardStartDate, entity.CardEndDate, now);
+                dto.IsClosingSoon = IsClosingSoon(entity.CardEndDate, now);
+            }
 
             var filters =
                 await GetFiltersAsync(request);
@@ -215,15 +227,19 @@ namespace GemApi.Services
                     exclude: "Status");
 
             var now = DateTime.Now;
+            var closingSoonUpperBound = now.AddDays(ClosingSoonWindowDays);
 
             var status = new StatusCountDto
             {
+                // ACTIVE: CardStartDate <= now <= CardEndDate
                 Active =
                     await statusBase.CountAsync(
                         x =>
-                            x.CardEndDate
-                            >= now),
+                            x.CardStartDate <= now
+                            &&
+                            x.CardEndDate >= now),
 
+                // CLOSING SOON: within ClosingSoonWindowDays of CardEndDate
                 ClosingSoon =
                     await statusBase.CountAsync(
                         x =>
@@ -231,8 +247,9 @@ namespace GemApi.Services
                             >= now
                             &&
                             x.CardEndDate
-                            <= now.AddDays(3)),
+                            <= closingSoonUpperBound),
 
+                // EXPIRED: CardEndDate has passed
                 Expired =
                     await statusBase.CountAsync(
                         x =>
@@ -258,18 +275,22 @@ namespace GemApi.Services
             var query = _repository.GetAll();
 
             var now = DateTime.Now;
+            var closingSoonUpperBound = now.AddDays(ClosingSoonWindowDays);
 
             return new DashboardDto
             {
                 TotalBids =
                     await query.CountAsync(),
 
+                // ACTIVE: CardStartDate <= now <= CardEndDate
                 ActiveBids =
                     await query.CountAsync(
                         x =>
-                            x.CardEndDate
-                            >= now),
+                            x.CardStartDate <= now
+                            &&
+                            x.CardEndDate >= now),
 
+                // CLOSING SOON: within ClosingSoonWindowDays of CardEndDate
                 ClosingSoon =
                     await query.CountAsync(
                         x =>
@@ -277,8 +298,9 @@ namespace GemApi.Services
                             >= now
                             &&
                             x.CardEndDate
-                            <= now.AddDays(3)),
+                            <= closingSoonUpperBound),
 
+                // EXPIRED: CardEndDate has passed
                 ExpiredBids =
                     await query.CountAsync(
                         x =>
@@ -359,31 +381,35 @@ namespace GemApi.Services
             }
 
             // STATUS
+            // NOTE: status is derived ONLY from CardStartDate / CardEndDate.
             if (exclude != "Status")
             {
+                var now = DateTime.Now;
+                var closingSoonUpperBound = now.AddDays(ClosingSoonWindowDays);
+
                 if (request.Active == true)
                 {
                     query = query.Where(x =>
-                        x.CardEndDate
-                        >= DateTime.Now);
+                        x.CardStartDate <= now
+                        &&
+                        x.CardEndDate >= now);
                 }
 
                 if (request.ClosingSoon == true)
                 {
                     query = query.Where(x =>
                         x.CardEndDate
-
-                        >= DateTime.Now
+                        >= now
                         &&
                         x.CardEndDate
-                        <= DateTime.Now.AddDays(3));
+                        <= closingSoonUpperBound);
                 }
 
                 if (request.Expired == true)
                 {
                     query = query.Where(x =>
                         x.CardEndDate
-                        < DateTime.Now);
+                        < now);
                 }
             }
 
@@ -580,6 +606,19 @@ namespace GemApi.Services
                             x => x.CardEndDate);
             }
         }
+
+        // STATUS HELPERS (CardStartDate / CardEndDate only)
+        private static bool IsActive(
+            DateTime? cardStartDate,
+            DateTime? cardEndDate,
+            DateTime now)
+            => cardStartDate <= now && cardEndDate >= now;
+
+        private static bool IsClosingSoon(
+            DateTime? cardEndDate,
+            DateTime now)
+            => cardEndDate >= now
+               && cardEndDate <= now.AddDays(ClosingSoonWindowDays);
 
         // EMAIL NOTIFICATION SUMMARY
         public async Task<BidNotificationSummaryDto>

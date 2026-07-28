@@ -19,10 +19,6 @@ namespace GemApi.Models.Entity;
 [Index("CategorySubKey", Name = "IX_gembidextracts_CategorySubKey")]
 public partial class GeMbidExtract
 {
-    [Key]
-    public int Id { get; set; }
-
-    public string? BidNumber { get; set; }
 
     public string? PdfUrl { get; set; }
 

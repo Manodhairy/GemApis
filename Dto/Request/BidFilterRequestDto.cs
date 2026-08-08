@@ -21,8 +21,13 @@
         public bool? ClosingSoon { get; set; }
         public bool? Expired { get; set; }
 
+
+        // Expiring Filters (new)
+        public bool? ExpiringThisWeek { get; set; }
+        public bool? ExpiringThisMonth { get; set; }
+        public bool? ExpiringThisYear { get; set; }
         // Date Filters
-       
+
         //public DateTime? ClosingDateFrom { get; set; }
         //public DateTime? ClosingDateTo { get; set; }
 
@@ -42,7 +47,7 @@
         public bool? MIIPurchasePreference { get; set; }
 
         // Sorting
-        public string SortBy { get; set; } = "CardEndDate";
+        public string SortBy { get; set; } = "status";
         public bool Descending { get; set; } = false;
 
         // Pagination

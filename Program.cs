@@ -1,4 +1,4 @@
-﻿using GemApi.BackgroundServices;
+using GemApi.BackgroundServices;
 using GemApi.Data;
 using GemApi.Repository;
 using GemApi.Repository.Interfaces;

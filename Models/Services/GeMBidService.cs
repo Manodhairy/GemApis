@@ -277,17 +277,21 @@ namespace GemApi.Services
             var today = now.Date;
             var closingSoonUpperBound = now.AddDays(ClosingSoonWindowDays);
 
+            // Active-only query — CardStartDate <= now <= CardEndDate.
+            // Reused below for the Yearly/Monthly/Weekly breakdown so those
+            // cards only ever count bids that are currently Active.
+            var activeQuery = query.Where(x =>
+                x.CardStartDate <= now
+                &&
+                x.CardEndDate >= now);
+
             var dashboard = new DashboardDto
             {
                 TotalBids =
                     await query.CountAsync(),
                 // ACTIVE: CardStartDate <= now <= CardEndDate
                 ActiveBids =
-                    await query.CountAsync(
-                        x =>
-                            x.CardStartDate <= now
-                            &&
-                            x.CardEndDate >= now),
+                    await activeQuery.CountAsync(),
                 // CLOSING SOON: within ClosingSoonWindowDays of CardEndDate
                 ClosingSoon =
                     await query.CountAsync(
@@ -332,9 +336,9 @@ namespace GemApi.Services
 
             };
 
-            // ---- YEARLY (SQL does GroupBy + Count, string built after await) ----
+            // ---- YEARLY (ACTIVE bids only, grouped by CardStartDate year) ----
             var yearlyRaw =
-                await query
+                await activeQuery
                     .Where(x =>
                         x.CardStartDate != null)
                     .GroupBy(x =>
@@ -358,9 +362,9 @@ namespace GemApi.Services
                         })
                     .ToList();
 
-            // ---- MONTHLY (SQL does GroupBy + Count, "00" formatting done after await) ----
+            // ---- MONTHLY (ACTIVE bids only) ----
             var monthlyRaw =
-                await query
+                await activeQuery
                     .Where(x =>
                         x.CardStartDate != null)
                     .GroupBy(x =>
@@ -390,10 +394,10 @@ namespace GemApi.Services
                         })
                     .ToList();
 
-            // ---- WEEKLY ----
+            // ---- WEEKLY (ACTIVE bids only) ----
             // ISOWeek can't be translated to SQL at all, so raw dates must come back first.
             var startDates =
-                await query
+                await activeQuery
                     .Where(x =>
                         x.CardStartDate != null)
                     .Select(x =>
@@ -737,33 +741,41 @@ namespace GemApi.Services
                IQueryable<GeMbidExtract> query,
                BidFilterRequestDto request)
         {
+            // Shared status-priority ordering: Closing Soon (0) -> Active (1) -> Expired (2) -> Other (3).
+            // Used both when the caller explicitly asks for sortBy=status AND as the
+            // default ordering when no sortBy is supplied at all.
+            IQueryable<GeMbidExtract> StatusPriorityOrder()
+            {
+                var now = DateTime.Now;
+                var closingSoonUpperBound =
+                    now.AddDays(ClosingSoonWindowDays);
+
+                return query
+                    .OrderBy(x =>
+                        // Closing Soon = 0
+                        (x.CardEndDate >= now &&
+                         x.CardEndDate <= closingSoonUpperBound)
+                            ? 0
+
+                        // Active = 1
+                        : (x.CardStartDate <= now &&
+                           x.CardEndDate >= now)
+                            ? 1
+
+                        // Expired = 2
+                        : (x.CardEndDate < now)
+                            ? 2
+
+                        // Other = 3
+                        : 3)
+                    .ThenBy(x => x.CardEndDate);
+            }
+
             switch (request.SortBy?.ToLower())
             {
                 case "status":
 
-                    var now = DateTime.Now;
-                    var closingSoonUpperBound =
-                        now.AddDays(ClosingSoonWindowDays);
-
-                    return query
-                        .OrderBy(x =>
-                            // Closing Soon = 0
-                            (x.CardEndDate >= now &&
-                             x.CardEndDate <= closingSoonUpperBound)
-                                ? 0
-
-                            // Active = 1
-                            : (x.CardStartDate <= now &&
-                               x.CardEndDate >= now)
-                                ? 1
-
-                            // Expired = 2
-                            : (x.CardEndDate < now)
-                                ? 2
-
-                            // Other = 3
-                            : 3)
-                        .ThenBy(x => x.CardEndDate);
+                    return StatusPriorityOrder();
 
 
                 case "biddate":
@@ -787,11 +799,10 @@ namespace GemApi.Services
                         : query.OrderBy(x => x.DepartmentName);
 
 
+                // No sortBy supplied -> default to Closing Soon -> Active -> Expired.
                 default:
 
-                    return request.Descending
-                        ? query.OrderByDescending(x => x.CardStartDate)
-                        : query.OrderBy(x => x.CardEndDate);
+                    return StatusPriorityOrder();
             }
         }
         // STATUS HELPERS (CardStartDate / CardEndDate only)

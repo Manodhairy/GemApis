@@ -273,15 +273,14 @@ namespace GemApi.Services
             GetDashboardAsync()
         {
             var query = _repository.GetAll();
-
             var now = DateTime.Now;
+            var today = now.Date;
             var closingSoonUpperBound = now.AddDays(ClosingSoonWindowDays);
 
-            return new DashboardDto
+            var dashboard = new DashboardDto
             {
                 TotalBids =
                     await query.CountAsync(),
-
                 // ACTIVE: CardStartDate <= now <= CardEndDate
                 ActiveBids =
                     await query.CountAsync(
@@ -289,7 +288,6 @@ namespace GemApi.Services
                             x.CardStartDate <= now
                             &&
                             x.CardEndDate >= now),
-
                 // CLOSING SOON: within ClosingSoonWindowDays of CardEndDate
                 ClosingSoon =
                     await query.CountAsync(
@@ -299,14 +297,12 @@ namespace GemApi.Services
                             &&
                             x.CardEndDate
                             <= closingSoonUpperBound),
-
                 // EXPIRED: CardEndDate has passed
                 ExpiredBids =
                     await query.CountAsync(
                         x =>
                             x.CardEndDate
                             < now),
-
                 TotalMinistries =
                     await query
                         .Where(x =>
@@ -315,7 +311,6 @@ namespace GemApi.Services
                             x.Ministry)
                         .Distinct()
                         .CountAsync(),
-
                 TotalDepartments =
                     await query
                         .Where(x =>
@@ -325,7 +320,6 @@ namespace GemApi.Services
                             x.DepartmentName)
                         .Distinct()
                         .CountAsync(),
-
                 TotalOrganisations =
                     await query
                         .Where(x =>
@@ -336,12 +330,132 @@ namespace GemApi.Services
                         .Distinct()
                         .CountAsync(),
 
-                TotalEstimatedValue =
-                    await query.SumAsync(
-                        x =>
-                            x.EstimatedBidValue
-                            ?? 0)
             };
+
+            // ---- YEARLY (SQL does GroupBy + Count, string built after await) ----
+            var yearlyRaw =
+                await query
+                    .Where(x =>
+                        x.CardStartDate != null)
+                    .GroupBy(x =>
+                        x.CardStartDate!.Value.Year)
+                    .Select(g =>
+                        new
+                        {
+                            Year = g.Key,
+                            Count = g.Count()
+                        })
+                    .OrderBy(x => x.Year)
+                    .ToListAsync();
+
+            dashboard.YearlyBids =
+                yearlyRaw
+                    .Select(x =>
+                        new PeriodCountDto
+                        {
+                            Period = x.Year.ToString(),
+                            Count = x.Count
+                        })
+                    .ToList();
+
+            // ---- MONTHLY (SQL does GroupBy + Count, "00" formatting done after await) ----
+            var monthlyRaw =
+                await query
+                    .Where(x =>
+                        x.CardStartDate != null)
+                    .GroupBy(x =>
+                        new
+                        {
+                            x.CardStartDate!.Value.Year,
+                            x.CardStartDate!.Value.Month
+                        })
+                    .Select(g =>
+                        new
+                        {
+                            g.Key.Year,
+                            g.Key.Month,
+                            Count = g.Count()
+                        })
+                    .OrderBy(x => x.Year)
+                    .ThenBy(x => x.Month)
+                    .ToListAsync();
+
+            dashboard.MonthlyBids =
+                monthlyRaw
+                    .Select(x =>
+                        new PeriodCountDto
+                        {
+                            Period = x.Year + "-" + x.Month.ToString("00"),
+                            Count = x.Count
+                        })
+                    .ToList();
+
+            // ---- WEEKLY ----
+            // ISOWeek can't be translated to SQL at all, so raw dates must come back first.
+            var startDates =
+                await query
+                    .Where(x =>
+                        x.CardStartDate != null)
+                    .Select(x =>
+                        x.CardStartDate!.Value)
+                    .ToListAsync();
+
+            dashboard.WeeklyBids =
+                startDates
+                    .GroupBy(d =>
+                        new
+                        {
+                            d.Year,
+                            Week = System.Globalization.ISOWeek.GetWeekOfYear(d)
+                        })
+                    .Select(g =>
+                        new PeriodCountDto
+                        {
+                            Period = $"{g.Key.Year}-W{g.Key.Week:00}",
+                            Count = g.Count()
+                        })
+                    .OrderBy(x => x.Period)
+                    .ToList();
+
+            // ---- date boundaries for exclusive expiring buckets ----
+            var endOfWeek =
+                today.AddDays(7);
+            var endOfMonth =
+                new DateTime(
+                    today.Year,
+                    today.Month,
+                    DateTime.DaysInMonth(today.Year, today.Month));
+            var endOfYear =
+                new DateTime(today.Year, 12, 31);
+
+            // ---- EXPIRING THIS WEEK COUNT ----
+            dashboard.ExpiringThisWeekCount =
+                await query.CountAsync(x =>
+                    x.CardEndDate != null
+                    &&
+                    x.CardEndDate >= today
+                    &&
+                    x.CardEndDate <= endOfWeek);
+
+            // ---- EXPIRING THIS MONTH COUNT (after week, till end of month) ----
+            dashboard.ExpiringThisMonthCount =
+                await query.CountAsync(x =>
+                    x.CardEndDate != null
+                    &&
+                    x.CardEndDate > endOfWeek
+                    &&
+                    x.CardEndDate <= endOfMonth);
+
+            // ---- EXPIRING THIS YEAR COUNT (after month, till end of year) ----
+            dashboard.ExpiringThisYearCount =
+                await query.CountAsync(x =>
+                    x.CardEndDate != null
+                    &&
+                    x.CardEndDate > endOfMonth
+                    &&
+                    x.CardEndDate <= endOfYear);
+
+            return dashboard;
         }
 
         // BUILD FILTER QUERY
@@ -385,6 +499,7 @@ namespace GemApi.Services
             if (exclude != "Status")
             {
                 var now = DateTime.Now;
+                var today = now.Date;
                 var closingSoonUpperBound = now.AddDays(ClosingSoonWindowDays);
 
                 if (request.Active == true)
@@ -410,6 +525,54 @@ namespace GemApi.Services
                     query = query.Where(x =>
                         x.CardEndDate
                         < now);
+                }
+
+                // EXPIRING THIS WEEK / MONTH / YEAR
+                // Mutually exclusive buckets — same logic as GetDashboardAsync,
+                // so a bid appearing in "week" never appears in "month" or "year", etc.
+                if (request.ExpiringThisWeek == true
+                    ||
+                    request.ExpiringThisMonth == true
+                    ||
+                    request.ExpiringThisYear == true)
+                {
+                    var endOfWeek =
+                        today.AddDays(7);
+                    var endOfMonth =
+                        new DateTime(
+                            today.Year,
+                            today.Month,
+                            DateTime.DaysInMonth(today.Year, today.Month));
+                    var endOfYear =
+                        new DateTime(today.Year, 12, 31);
+
+                    if (request.ExpiringThisWeek == true)
+                    {
+                        query = query.Where(x =>
+                            x.CardEndDate != null
+                            &&
+                            x.CardEndDate >= today
+                            &&
+                            x.CardEndDate <= endOfWeek);
+                    }
+                    else if (request.ExpiringThisMonth == true)
+                    {
+                        query = query.Where(x =>
+                            x.CardEndDate != null
+                            &&
+                            x.CardEndDate > endOfWeek
+                            &&
+                            x.CardEndDate <= endOfMonth);
+                    }
+                    else if (request.ExpiringThisYear == true)
+                    {
+                        query = query.Where(x =>
+                            x.CardEndDate != null
+                            &&
+                            x.CardEndDate > endOfMonth
+                            &&
+                            x.CardEndDate <= endOfYear);
+                    }
                 }
             }
 
@@ -569,44 +732,68 @@ namespace GemApi.Services
             return query;
         }
 
-        // SORTING
         private static IQueryable<GeMbidExtract>
-            ApplySorting(
-                IQueryable<GeMbidExtract> query,
-                BidFilterRequestDto request)
+           ApplySorting(
+               IQueryable<GeMbidExtract> query,
+               BidFilterRequestDto request)
         {
             switch (request.SortBy?.ToLower())
             {
+                case "status":
+
+                    var now = DateTime.Now;
+                    var closingSoonUpperBound =
+                        now.AddDays(ClosingSoonWindowDays);
+
+                    return query
+                        .OrderBy(x =>
+                            // Closing Soon = 0
+                            (x.CardEndDate >= now &&
+                             x.CardEndDate <= closingSoonUpperBound)
+                                ? 0
+
+                            // Active = 1
+                            : (x.CardStartDate <= now &&
+                               x.CardEndDate >= now)
+                                ? 1
+
+                            // Expired = 2
+                            : (x.CardEndDate < now)
+                                ? 2
+
+                            // Other = 3
+                            : 3)
+                        .ThenBy(x => x.CardEndDate);
+
+
                 case "biddate":
+
                     return request.Descending
-                        ? query.OrderByDescending(
-                            x => x.BidDate)
-                        : query.OrderBy(
-                            x => x.BidDate);
+                        ? query.OrderByDescending(x => x.BidDate)
+                        : query.OrderBy(x => x.BidDate);
+
 
                 case "estimatedvalue":
+
                     return request.Descending
-                        ? query.OrderByDescending(
-                            x => x.EstimatedBidValue)
-                        : query.OrderBy(
-                            x => x.EstimatedBidValue);
+                        ? query.OrderByDescending(x => x.EstimatedBidValue)
+                        : query.OrderBy(x => x.EstimatedBidValue);
+
 
                 case "department":
+
                     return request.Descending
-                        ? query.OrderByDescending(
-                            x => x.DepartmentName)
-                        : query.OrderBy(
-                            x => x.DepartmentName);
+                        ? query.OrderByDescending(x => x.DepartmentName)
+                        : query.OrderBy(x => x.DepartmentName);
+
 
                 default:
+
                     return request.Descending
-                        ? query.OrderByDescending(
-                            x => x.CardStartDate)
-                        : query.OrderBy(
-                            x => x.CardEndDate);
+                        ? query.OrderByDescending(x => x.CardStartDate)
+                        : query.OrderBy(x => x.CardEndDate);
             }
         }
-
         // STATUS HELPERS (CardStartDate / CardEndDate only)
         private static bool IsActive(
             DateTime? cardStartDate,

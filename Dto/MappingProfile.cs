@@ -1,4 +1,5 @@
 ﻿using AutoMapper;
+using GemApi.Dto.Request;
 using GemApi.DTOs.Response;
 using GemApi.Models.Entity;
 
@@ -17,6 +18,7 @@ namespace GemApi.DTOs
                         src.BidEndDateTime <= DateTime.Now.AddDays(3)));
 
             CreateMap<GeMbidExtract, BidDetailDto>();
+            CreateMap<Admin,LoginDto>();
         }
     }
 }

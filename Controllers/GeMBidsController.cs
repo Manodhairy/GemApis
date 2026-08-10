@@ -3,6 +3,8 @@ using GemApi.Services.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
+
+
 namespace GemApi.Controllers
 {
     [Authorize]
@@ -17,7 +19,14 @@ namespace GemApi.Controllers
             _service = service;
         }
 
+
+
+
+
         
+
+        
+
         [HttpGet]
         public async Task<IActionResult> GetBids([FromQuery] BidFilterRequestDto request)
         {
@@ -39,6 +48,25 @@ namespace GemApi.Controllers
         {
             var result = await _service.GetDashboardAsync();
             return Ok(result);
+        }
+
+
+        //Xl export endpoint
+
+
+        [HttpGet("export")]
+        public async Task<IActionResult> ExportBids(
+          [FromQuery] BidFilterRequestDto request)
+        {
+            var fileBytes = await _service.ExportBidsAsync(request);
+
+            var fileName =
+                $"GeM_Bids_{DateTime.Now:yyyyMMdd_HHmmss}.xlsx";
+
+            return File(
+                fileBytes,
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                fileName);
         }
 
         // GET api/gembids/GEM/2024/B/1234567

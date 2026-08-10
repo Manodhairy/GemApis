@@ -101,6 +101,7 @@ builder.Services.AddHostedService<
 // JWT
 // ======================================================
 
+builder.Services.AddScoped<JwtService>();
 var jwtKey =
     builder.Configuration["Jwt:Key"];
 
@@ -109,6 +110,7 @@ var jwtIssuer =
 
 var jwtAudience =
     builder.Configuration["Jwt:Audience"];
+
 
 if (string.IsNullOrWhiteSpace(jwtKey))
 {

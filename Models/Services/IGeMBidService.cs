@@ -13,5 +13,7 @@ namespace GemApi.Services.Interfaces
         Task<BidNotificationSummaryDto>GetNotificationSummaryAsync(
                 int lastProcessedBidId,
                 int currentMaximumBidId);
+//For Xl eport
+        Task<byte[]> ExportBidsAsync(BidFilterRequestDto request);
     }
 }

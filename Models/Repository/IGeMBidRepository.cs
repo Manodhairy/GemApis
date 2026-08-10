@@ -11,5 +11,9 @@ namespace GemApi.Repository.Interfaces
         Task UpdateAsync(GeMbidExtract entity);
         Task DeleteAsync(GeMbidExtract entity);
         Task<int> SaveChangesAsync();
+
+
+
+
     }
 }

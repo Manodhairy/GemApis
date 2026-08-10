@@ -6,10 +6,114 @@ using GemApi.Repository.Interfaces;
 using GemApi.Services.Interfaces;
 using Microsoft.EntityFrameworkCore;
 
+using MiniExcelLibs;
+
 namespace GemApi.Services
 {
     public class GeMBidService : IGeMBidService
     {
+
+        //Xl export method
+
+        public async Task<byte[]> ExportBidsAsync(BidFilterRequestDto request)
+        {
+            var totalStopwatch =
+                System.Diagnostics.Stopwatch.StartNew();
+
+            // =========================================================
+            // 1. BUILD THE SAME FILTERED QUERY USED BY THE BID LIST
+            // =========================================================
+            var query = BuildFilteredQuery(request);
+
+            // =========================================================
+            // 2. APPLY THE SAME SORTING USED BY THE BID LIST
+            // =========================================================
+            query = ApplySorting(query, request);
+
+            // =========================================================
+            // 3. IMPORTANT:
+            // DO NOT APPLY Skip() / Take()
+            //
+            // The dashboard uses pagination, but Excel should contain
+            // ALL records matching the currently selected filters.
+            //
+            // Example:
+            //
+            // All Bids (19)   -> Excel = 19 records
+            // All Bids (143)  -> Excel = 143 records
+            // All Bids (811)  -> Excel = 811 records
+            // =========================================================
+
+            var now = DateTime.Now;
+            var closingSoonUpperBound =
+                now.AddDays(ClosingSoonWindowDays);
+
+            // =========================================================
+            // 4. SELECT ONLY THE COLUMNS REQUIRED FOR EXCEL
+            // =========================================================
+            var exportQuery = query
+                .Select(x => new BidExportDto
+                {
+                    BidNumber = x.BidNumber,
+                    Department = x.DepartmentName,
+                    Organisation = x.OrganisationName,
+                    Location = x.OfficeName,
+                    Category = x.CategoryKey,
+                    SubCategory = x.CategorySubKey,
+                    BidStartDate = x.CardStartDate,
+                    BidEndDate = x.CardEndDate,
+                    Status =
+                        x.CardEndDate == null
+                            ? "Unknown"
+                            : x.CardEndDate < now
+                                ? "Expired"
+                            : x.CardEndDate <= closingSoonUpperBound
+                                ? "Closing Soon"
+                            : "Active"
+                })
+                .AsNoTracking();
+
+            // =========================================================
+            // 5. STREAM DATA FROM DATABASE TO EXCEL
+            // =========================================================
+            var excelStopwatch =
+                System.Diagnostics.Stopwatch.StartNew();
+
+            using var stream = new MemoryStream();
+
+            var asyncData =
+                exportQuery.AsAsyncEnumerable();
+
+            await stream.SaveAsAsync(
+                asyncData,
+                sheetName: "Bids"
+            );
+
+            excelStopwatch.Stop();
+
+            // =========================================================
+            // 6. LOG PERFORMANCE
+            // =========================================================
+            totalStopwatch.Stop();
+
+            Console.WriteLine(
+                $"EXCEL STREAMING TIME: " +
+                $"{excelStopwatch.ElapsedMilliseconds} ms");
+
+            Console.WriteLine(
+                $"TOTAL EXPORT TIME: " +
+                $"{totalStopwatch.ElapsedMilliseconds} ms");
+
+            return stream.ToArray();
+        }
+
+
+
+
+
+
+
+
         // Single source of truth for the "closing soon" window (in days before CardEndDate)
         private const int ClosingSoonWindowDays = 1;
 

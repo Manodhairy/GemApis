@@ -88,8 +88,11 @@ namespace GemApi.Services
                         Summary
                     </h2>
 
-                    
-                      
+                    <table style="
+                        width:100%;
+                        border-collapse:collapse;
+                        margin-top:12px;
+                        font-size:14px;">
 
                         <tr>
                             <td style="
@@ -124,11 +127,10 @@ namespace GemApi.Services
                                 {summary.TotalRecordCount}
                             </td>
                         </tr>
-                        </tr>
                     </table>
                 """);
 
-          
+
             // Category table
             html.Append("""
                     <h2 style="
@@ -243,9 +245,13 @@ namespace GemApi.Services
                 _settings.SenderName
             );
 
-            message.To.Add(
-                _settings.ReceiverEmail.Trim()
-            );
+            foreach (var receiver in _settings.ReceiverEmails)
+            {
+                if (!string.IsNullOrWhiteSpace(receiver))
+                {
+                    message.To.Add(receiver.Trim());
+                }
+            }
 
             message.Subject =
                 $"{summary.NewRecordCount} new GeM bids added";
@@ -266,7 +272,7 @@ namespace GemApi.Services
             smtpClient.Credentials =
                 new NetworkCredential(
                     _settings.SenderEmail.Trim(),
-                    _settings.Password.Trim()
+                    _settings.SenderPassword.Trim()
                 );
 
             await smtpClient.SendMailAsync(message);

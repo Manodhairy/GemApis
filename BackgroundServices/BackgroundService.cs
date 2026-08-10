@@ -8,7 +8,7 @@ namespace GemApi.BackgroundServices
     public class BidEmailBackgroundService
         : BackgroundService
     {
-        // Minimum 100 नवीन records झाल्यावरच mail
+        // Minimum records required before sending mail
         private const int MinimumRecordCount = 5;
 
         private readonly IServiceScopeFactory
@@ -45,7 +45,7 @@ namespace GemApi.BackgroundServices
                     );
                 }
 
-                // प्रत्येक 1 मिनिटाने database check
+                // Check the database every 1 minute
                 await Task.Delay(
                     TimeSpan.FromMinutes(1),
                     stoppingToken
@@ -64,7 +64,7 @@ namespace GemApi.BackgroundServices
                     .GetRequiredService<
                         ApplicationDbContext>();
 
-            // Existing GeMBidService चा reference
+            // Existing GeMBidService reference
             var bidService =
                 scope.ServiceProvider
                     .GetRequiredService<
@@ -125,7 +125,7 @@ namespace GemApi.BackgroundServices
                 return;
             }
 
-            // Service actual counts calculate करेल
+            // Service calculates the actual counts
             var summary =
                 await bidService
                     .GetNotificationSummaryAsync(
@@ -138,9 +138,9 @@ namespace GemApi.BackgroundServices
                 summary.NewRecordCount
             );
 
-            // 100 पेक्षा कमी records असतील तर mail नाही
-            // LastProcessedBidId सुद्धा update करायचा नाही.
-            // पुढच्या records सोबत count accumulate होईल.
+            // If fewer than MinimumRecordCount records, don't send mail
+            // and don't update LastProcessedBidId either.
+            // The count will accumulate with the next batch.
             if (summary.NewRecordCount <
                 MinimumRecordCount)
             {
@@ -152,14 +152,14 @@ namespace GemApi.BackgroundServices
                 return;
             }
 
-            // 100 किंवा जास्त झाल्यानंतर mail
+            // Send mail once threshold is reached
             await emailService
                 .SendBidNotificationAsync(
                     summary,
                     MinimumRecordCount
                 );
 
-            // Mail successful झाल्यावरच state update
+            // Only update state once mail succeeds
             state.LastProcessedBidId =
                 currentMaximumId;
 

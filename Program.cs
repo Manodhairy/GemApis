@@ -4,20 +4,24 @@ using GemApi.Models.Repository;
 using GemApi.Services;
 using GemApi.Services.Interfaces;
 using GemApi.Settings;
+
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
-using System.Text;
-
 using Microsoft.OpenApi.Models;
 
+using System.Text;
+
 var builder = WebApplication.CreateBuilder(args);
+
+// ======================================================
+// DATABASE
+// ======================================================
 
 var connectionString =
     builder.Configuration.GetConnectionString(
         "DefaultConnection"
     );
-
 
 builder.Services.AddDbContext<ApplicationDbContext>(
     options =>
@@ -26,134 +30,266 @@ builder.Services.AddDbContext<ApplicationDbContext>(
     }
 );
 
+// ======================================================
+// AUTOMAPPER
+// ======================================================
+
 builder.Services.AddAutoMapper(
     cfg => { },
     AppDomain.CurrentDomain.GetAssemblies()
 );
 
+// ======================================================
+// REPOSITORY
+// ======================================================
+
 builder.Services.AddScoped<
     IGeMBidRepository,
-    GeMBidRepository>();
+    GeMBidRepository
+>();
+
+// ======================================================
+// SERVICES
+// ======================================================
 
 builder.Services.AddScoped<
     IGeMBidService,
-    GeMBidService>();
+    GeMBidService
+>();
 
+// ======================================================
+// EMAIL SETTINGS
+// ======================================================
+//
+// This loads:
+// appsettings.json
+// +
+// User Secrets
+//
+// User Secret:
+// EmailSettings:ApiKey
+//
+// Your EmailService receives it through:
+// IOptions<EmailSettings>
+// ======================================================
 
 builder.Services.Configure<EmailSettings>(
     builder.Configuration.GetSection(
-        "EmailSettings")
+        "EmailSettings"
+    )
 );
+
+// ======================================================
+// EMAIL SERVICE
+// ======================================================
 
 builder.Services.AddScoped<
     IEmailService,
-    EmailService>();
+    EmailService
+>();
+
+// ======================================================
+// BACKGROUND EMAIL SERVICE
+// ======================================================
 
 builder.Services.AddHostedService<
-    BidEmailBackgroundService>();
+    BidEmailBackgroundService
+>();
+
+// ======================================================
+// JWT
+// ======================================================
 
 builder.Services.AddScoped<JwtService>();
-// ---- JWT ----
-var jwtKey = builder.Configuration["Jwt:Key"]!;
-var jwtIssuer = builder.Configuration["Jwt:Issuer"];
-var jwtAudience = builder.Configuration["Jwt:Audience"];
+var jwtKey =
+    builder.Configuration["Jwt:Key"];
 
-builder.Services.AddAuthentication(options =>
+var jwtIssuer =
+    builder.Configuration["Jwt:Issuer"];
+
+var jwtAudience =
+    builder.Configuration["Jwt:Audience"];
+
+
+if (string.IsNullOrWhiteSpace(jwtKey))
 {
-    options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
-    options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
-})
-.AddJwtBearer(options =>
-{
-    options.TokenValidationParameters = new TokenValidationParameters
+    throw new InvalidOperationException(
+        "JWT Key is not configured."
+    );
+}
+
+builder.Services.AddAuthentication(
+    options =>
     {
-        ValidateIssuer = true,
-        ValidateAudience = true,
-        ValidateLifetime = true,
-        ValidateIssuerSigningKey = true,
-        ValidIssuer = jwtIssuer,
-        ValidAudience = jwtAudience,
-        IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey)),
-        ClockSkew = TimeSpan.Zero
-    };
-});
+        options.DefaultAuthenticateScheme =
+            JwtBearerDefaults.AuthenticationScheme;
+
+        options.DefaultChallengeScheme =
+            JwtBearerDefaults.AuthenticationScheme;
+    }
+)
+.AddJwtBearer(
+    options =>
+    {
+        options.TokenValidationParameters =
+            new TokenValidationParameters
+            {
+                ValidateIssuer = true,
+
+                ValidateAudience = true,
+
+                ValidateLifetime = true,
+
+                ValidateIssuerSigningKey = true,
+
+                ValidIssuer = jwtIssuer,
+
+                ValidAudience = jwtAudience,
+
+                IssuerSigningKey =
+                    new SymmetricSecurityKey(
+                        Encoding.UTF8.GetBytes(
+                            jwtKey
+                        )
+                    ),
+
+                ClockSkew =
+                    TimeSpan.Zero
+            };
+    }
+);
+
 builder.Services.AddAuthorization();
+
+// ======================================================
+// CONTROLLERS
+// ======================================================
 
 builder.Services.AddControllers();
 
+// ======================================================
+// SWAGGER
+// ======================================================
+
 builder.Services.AddEndpointsApiExplorer();
 
-
-
-builder.Services.AddSwaggerGen(options =>
-{
-    options.SwaggerDoc("v1", new OpenApiInfo
+builder.Services.AddSwaggerGen(
+    options =>
     {
-        Title = "GemApi",
-        Version = "v1"
-    });
+        options.SwaggerDoc(
+            "v1",
+            new OpenApiInfo
+            {
+                Title = "GemApi",
+                Version = "v1"
+            }
+        );
 
-    options.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
-    {
-        Name = "Authorization",
-        Type = SecuritySchemeType.Http,
-        Scheme = "Bearer",
-        BearerFormat = "JWT",
-        In = ParameterLocation.Header,
-        Description = "Enter your JWT token."
-    });
+        // ----------------------------------------------
+        // JWT Swagger Authentication
+        // ----------------------------------------------
 
-    options.AddSecurityRequirement(new OpenApiSecurityRequirement
-    {
-        {
+        options.AddSecurityDefinition(
+            "Bearer",
             new OpenApiSecurityScheme
             {
-                Reference = new OpenApiReference
+                Name = "Authorization",
+
+                Type = SecuritySchemeType.Http,
+
+                Scheme = "Bearer",
+
+                BearerFormat = "JWT",
+
+                In = ParameterLocation.Header,
+
+                Description =
+                    "Enter your JWT token."
+            }
+        );
+
+        options.AddSecurityRequirement(
+            new OpenApiSecurityRequirement
+            {
                 {
-                    Type = ReferenceType.SecurityScheme,
-                    Id = "Bearer"
+                    new OpenApiSecurityScheme
+                    {
+                        Reference =
+                            new OpenApiReference
+                            {
+                                Type =
+                                    ReferenceType.SecurityScheme,
+
+                                Id = "Bearer"
+                            }
+                    },
+
+                    Array.Empty<string>()
                 }
-            },
-            Array.Empty<string>()
-        }
-    });
-});
+            }
+        );
+    }
+);
 
+// ======================================================
+// CORS
+// ======================================================
 
-builder.Services.AddCors(options =>
-{
-    options.AddPolicy(
-        "ReactPolicy",
-        policy =>
-        {
-            policy
-                .WithOrigins(
-                    "http://localhost:5173")
-                .AllowAnyHeader()
-                .AllowAnyMethod();
-        });
-});
+builder.Services.AddCors(
+    options =>
+    {
+        options.AddPolicy(
+            "ReactPolicy",
+            policy =>
+            {
+                policy
+                    .WithOrigins(
+                        "http://localhost:5173"
+                    )
+                    .AllowAnyHeader()
+                    .AllowAnyMethod();
+            }
+        );
+    }
+);
 
-
+// ======================================================
+// BUILD APP
+// ======================================================
 
 var app = builder.Build();
 
+// ======================================================
+// SWAGGER
+// ======================================================
 
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
+
     app.UseSwaggerUI();
 }
+
+// ======================================================
+// MIDDLEWARE
+// ======================================================
 
 app.UseHttpsRedirection();
 
 app.UseCors("ReactPolicy");
+
 app.UseAuthentication();
 
 app.UseAuthorization();
 
+// ======================================================
+// CONTROLLERS
+// ======================================================
+
 app.MapControllers();
 
+// ======================================================
+// RUN
+// ======================================================
+
 app.Run();
-
-

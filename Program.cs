@@ -14,10 +14,7 @@ using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// ======================================================
-// DATABASE
-// ======================================================
-
+#region AddDbContext
 var connectionString =
     builder.Configuration.GetConnectionString(
         "DefaultConnection"
@@ -29,77 +26,48 @@ builder.Services.AddDbContext<ApplicationDbContext>(
         options.UseSqlServer(connectionString);
     }
 );
+#endregion
 
-// ======================================================
-// AUTOMAPPER
-// ======================================================
-
+#region AutoMapper
 builder.Services.AddAutoMapper(
     cfg => { },
     AppDomain.CurrentDomain.GetAssemblies()
 );
 
-// ======================================================
-// REPOSITORY
-// ======================================================
+#endregion
 
+#region DI
 builder.Services.AddScoped<
     IGeMBidRepository,
     GeMBidRepository
 >();
-
-// ======================================================
-// SERVICES
-// ======================================================
-
 builder.Services.AddScoped<
     IGeMBidService,
     GeMBidService
 >();
-
-// ======================================================
-// EMAIL SETTINGS
-// ======================================================
-//
-// This loads:
-// appsettings.json
-// +
-// User Secrets
-//
-// User Secret:
-// EmailSettings:ApiKey
-//
-// Your EmailService receives it through:
-// IOptions<EmailSettings>
-// ======================================================
-
-builder.Services.Configure<EmailSettings>(
-    builder.Configuration.GetSection(
-        "EmailSettings"
-    )
-);
-
-// ======================================================
-// EMAIL SERVICE
-// ======================================================
 
 builder.Services.AddScoped<
     IEmailService,
     EmailService
 >();
 
-// ======================================================
-// BACKGROUND EMAIL SERVICE
-// ======================================================
+#endregion
+
+#region Email Confugure
+builder.Services.Configure<EmailSettings>(
+    builder.Configuration.GetSection(
+        "EmailSettings"
+    )
+);
+
+
 
 builder.Services.AddHostedService<
     BidEmailBackgroundService
 >();
+#endregion
 
-// ======================================================
-// JWT
-// ======================================================
-
+#region JWt
 builder.Services.AddScoped<JwtService>();
 var jwtKey =
     builder.Configuration["Jwt:Key"];
@@ -128,48 +96,55 @@ builder.Services.AddAuthentication(
             JwtBearerDefaults.AuthenticationScheme;
     }
 )
-.AddJwtBearer(
-    options =>
+.AddJwtBearer(options =>
+{
+    options.TokenValidationParameters = new TokenValidationParameters
     {
-        options.TokenValidationParameters =
-            new TokenValidationParameters
+        ValidateIssuer = true,
+        ValidateAudience = true,
+        ValidateLifetime = true,
+        ValidateIssuerSigningKey = true,
+        ValidIssuer = jwtIssuer,
+        ValidAudience = jwtAudience,
+        IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey)),
+        ClockSkew = TimeSpan.Zero
+    };
+
+    // Ensure token matches the DB record
+    options.Events = new JwtBearerEvents
+    {
+        OnTokenValidated = async context =>
+        {
+            var dbContext = context.HttpContext.RequestServices.GetRequiredService<ApplicationDbContext>();
+            var userIdStr = context.Principal?.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+            var incomingToken = context.Request.Headers["Authorization"].ToString().Replace("Bearer ", "").Trim();
+
+            // FIX: Change int to long
+            if (long.TryParse(userIdStr, out long userId))
             {
-                ValidateIssuer = true,
+                var admin = await dbContext.Admins.FindAsync(userId);
 
-                ValidateAudience = true,
+                if (admin == null || string.IsNullOrEmpty(admin.Token) || admin.Token != incomingToken)
+                {
+                    context.Fail("Token has been revoked or expired.");
+                }
+            }
+            else
+            {
+                context.Fail("Invalid user claim.");
+            }
+        }
+    };
+});
 
-                ValidateLifetime = true,
+#endregion
 
-                ValidateIssuerSigningKey = true,
-
-                ValidIssuer = jwtIssuer,
-
-                ValidAudience = jwtAudience,
-
-                IssuerSigningKey =
-                    new SymmetricSecurityKey(
-                        Encoding.UTF8.GetBytes(
-                            jwtKey
-                        )
-                    ),
-
-                ClockSkew =
-                    TimeSpan.Zero
-            };
-    }
-);
 
 builder.Services.AddAuthorization();
 
-// ======================================================
-// CONTROLLERS
-// ======================================================
 
 builder.Services.AddControllers();
 
-// ======================================================
-// SWAGGER
-// ======================================================
 
 builder.Services.AddEndpointsApiExplorer();
 
@@ -185,9 +160,7 @@ builder.Services.AddSwaggerGen(
             }
         );
 
-        // ----------------------------------------------
-        // JWT Swagger Authentication
-        // ----------------------------------------------
+        
 
         options.AddSecurityDefinition(
             "Bearer",
@@ -231,10 +204,7 @@ builder.Services.AddSwaggerGen(
     }
 );
 
-// ======================================================
-// CORS
-// ======================================================
-
+#region CorsOrigin
 builder.Services.AddCors(
     options =>
     {
@@ -244,8 +214,11 @@ builder.Services.AddCors(
             {
                 policy
                     .WithOrigins(
-                        "http://localhost:5173"
-                    )
+               "https://gemsbid.sdaemon.com" ,
+               " http://localhost:5173"
+
+
+               )
                     .AllowAnyHeader()
                     .AllowAnyMethod();
             }
@@ -253,15 +226,12 @@ builder.Services.AddCors(
     }
 );
 
-// ======================================================
-// BUILD APP
-// ======================================================
+#endregion
+
 
 var app = builder.Build();
 
-// ======================================================
-// SWAGGER
-// ======================================================
+
 
 if (app.Environment.IsDevelopment())
 {
@@ -270,9 +240,6 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
-// ======================================================
-// MIDDLEWARE
-// ======================================================
 
 app.UseHttpsRedirection();
 
@@ -282,14 +249,8 @@ app.UseAuthentication();
 
 app.UseAuthorization();
 
-// ======================================================
-// CONTROLLERS
-// ======================================================
 
 app.MapControllers();
 
-// ======================================================
-// RUN
-// ======================================================
 
 app.Run();

@@ -5,9 +5,9 @@ using Microsoft.EntityFrameworkCore;
 
 namespace GemApi.BackgroundServices
 {
-    public class BidEmailBackgroundService
-        : BackgroundService
+    public class BidEmailBackgroundService : BackgroundService
     {
+        #region Field
         // Minimum records required before sending mail
         private const int MinimumRecordCount = 5;
 
@@ -16,7 +16,10 @@ namespace GemApi.BackgroundServices
 
         private readonly ILogger
             <BidEmailBackgroundService> _logger;
+        #endregion
 
+
+        #region Constructor
         public BidEmailBackgroundService(
             IServiceScopeFactory scopeFactory,
             ILogger<BidEmailBackgroundService> logger)
@@ -24,7 +27,9 @@ namespace GemApi.BackgroundServices
             _scopeFactory = scopeFactory;
             _logger = logger;
         }
+        #endregion
 
+        #region ExecuteAsync
         protected override async Task ExecuteAsync(
             CancellationToken stoppingToken)
         {
@@ -52,7 +57,10 @@ namespace GemApi.BackgroundServices
                 );
             }
         }
+        #endregion
 
+
+        #region CheckNewRecordsAsync
         private async Task CheckNewRecordsAsync(
             CancellationToken cancellationToken)
         {
@@ -175,5 +183,6 @@ namespace GemApi.BackgroundServices
                 summary.NewRecordCount
             );
         }
+        #endregion
     }
 }

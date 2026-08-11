@@ -11,15 +11,21 @@ namespace GemApi.Services
 {
     public class EmailService : IEmailService
     {
+        #region Field
         private readonly EmailSettings _settings;
         private readonly ILogger<EmailService> _logger;
 
+        #endregion
+
+        #region Constructor
         public EmailService(IOptions<EmailSettings> options, ILogger<EmailService> logger)
         {
             _settings = options.Value;
             _logger = logger;
         }
+        #endregion SendBidNotificationAsync
 
+        #region SendBidNotificationAsync
         public async Task SendBidNotificationAsync(BidNotificationSummaryDto summary, int minimumRecordCount)
         {
             try
@@ -55,9 +61,10 @@ namespace GemApi.Services
             }
         }
 
-        // ================================================================
-        // VALIDATION
-        // ================================================================
+        #endregion
+
+        #region VALIDATION
+
 
         private void ValidateSettings()
         {
@@ -104,9 +111,10 @@ namespace GemApi.Services
             }
         }
 
-        // ================================================================
-        // HTML BUILDING
-        // ================================================================
+        #endregion
+
+        #region HTML BUILDING
+
 
         private string BuildEmailHtml(BidNotificationSummaryDto summary)
         {
@@ -526,5 +534,9 @@ namespace GemApi.Services
         </html>
         """;
         }
+
+        #endregion
+
+
     }
 }

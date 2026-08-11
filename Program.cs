@@ -54,7 +54,7 @@ builder.Services.AddScoped<
 
 #endregion
 
-#region Email Confugure
+#region Email Confiugure
 builder.Services.Configure<EmailSettings>(
     builder.Configuration.GetSection(
         "EmailSettings"

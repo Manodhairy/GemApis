@@ -97,36 +97,46 @@ builder.Services.AddAuthentication(
             JwtBearerDefaults.AuthenticationScheme;
     }
 )
-.AddJwtBearer(
-    options =>
+.AddJwtBearer(options =>
+{
+    options.TokenValidationParameters = new TokenValidationParameters
     {
-        options.TokenValidationParameters =
-            new TokenValidationParameters
+        ValidateIssuer = true,
+        ValidateAudience = true,
+        ValidateLifetime = true,
+        ValidateIssuerSigningKey = true,
+        ValidIssuer = jwtIssuer,
+        ValidAudience = jwtAudience,
+        IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey)),
+        ClockSkew = TimeSpan.Zero
+    };
+
+    // Ensure token matches the DB record
+    options.Events = new JwtBearerEvents
+    {
+        OnTokenValidated = async context =>
+        {
+            var dbContext = context.HttpContext.RequestServices.GetRequiredService<ApplicationDbContext>();
+            var userIdStr = context.Principal?.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+            var incomingToken = context.Request.Headers["Authorization"].ToString().Replace("Bearer ", "").Trim();
+
+            // FIX: Change int to long
+            if (long.TryParse(userIdStr, out long userId))
             {
-                ValidateIssuer = true,
+                var admin = await dbContext.Admins.FindAsync(userId);
 
-                ValidateAudience = true,
-
-                ValidateLifetime = true,
-
-                ValidateIssuerSigningKey = true,
-
-                ValidIssuer = jwtIssuer,
-
-                ValidAudience = jwtAudience,
-
-                IssuerSigningKey =
-                    new SymmetricSecurityKey(
-                        Encoding.UTF8.GetBytes(
-                            jwtKey
-                        )
-                    ),
-
-                ClockSkew =
-                    TimeSpan.Zero
-            };
-    }
-);
+                if (admin == null || string.IsNullOrEmpty(admin.Token) || admin.Token != incomingToken)
+                {
+                    context.Fail("Token has been revoked or expired.");
+                }
+            }
+            else
+            {
+                context.Fail("Invalid user claim.");
+            }
+        }
+    };
+});
 
 #endregion
 

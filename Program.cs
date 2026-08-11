@@ -215,7 +215,7 @@ builder.Services.AddCors(
                 policy
                     .WithOrigins(
                "https://gemsbid.sdaemon.com" ,
-               " http://localhost:5173"
+               "http://localhost:5173"
 
 
                )

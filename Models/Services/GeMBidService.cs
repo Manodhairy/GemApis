@@ -12,45 +12,45 @@ namespace GemApi.Services
 {
     public class GeMBidService : IGeMBidService
     {
+        #region Filed
 
-        //Xl export method
+        private const int ClosingSoonWindowDays = 1;
+
+        private readonly IGeMBidRepository _repository;
+        private readonly IMapper _mapper;
+        #endregion
+
+        #region Constructor
+        public GeMBidService(
+            IGeMBidRepository repository,
+            IMapper mapper)
+        {
+            _repository = repository;
+            _mapper = mapper;
+        }
+        #endregion
+
+
+        #region Xl export method
 
         public async Task<byte[]> ExportBidsAsync(BidFilterRequestDto request)
         {
             var totalStopwatch =
                 System.Diagnostics.Stopwatch.StartNew();
 
-            // =========================================================
-            // 1. BUILD THE SAME FILTERED QUERY USED BY THE BID LIST
-            // =========================================================
+          
             var query = BuildFilteredQuery(request);
 
-            // =========================================================
-            // 2. APPLY THE SAME SORTING USED BY THE BID LIST
-            // =========================================================
+           
             query = ApplySorting(query, request);
 
-            // =========================================================
-            // 3. IMPORTANT:
-            // DO NOT APPLY Skip() / Take()
-            //
-            // The dashboard uses pagination, but Excel should contain
-            // ALL records matching the currently selected filters.
-            //
-            // Example:
-            //
-            // All Bids (19)   -> Excel = 19 records
-            // All Bids (143)  -> Excel = 143 records
-            // All Bids (811)  -> Excel = 811 records
-            // =========================================================
+           
 
             var now = DateTime.Now;
             var closingSoonUpperBound =
                 now.AddDays(ClosingSoonWindowDays);
 
-            // =========================================================
-            // 4. SELECT ONLY THE COLUMNS REQUIRED FOR EXCEL
-            // =========================================================
+           
             var exportQuery = query
                 .Select(x => new BidExportDto
                 {
@@ -73,9 +73,7 @@ namespace GemApi.Services
                 })
                 .AsNoTracking();
 
-            // =========================================================
-            // 5. STREAM DATA FROM DATABASE TO EXCEL
-            // =========================================================
+          
             var excelStopwatch =
                 System.Diagnostics.Stopwatch.StartNew();
 
@@ -91,9 +89,7 @@ namespace GemApi.Services
 
             excelStopwatch.Stop();
 
-            // =========================================================
-            // 6. LOG PERFORMANCE
-            // =========================================================
+            
             totalStopwatch.Stop();
 
             Console.WriteLine(
@@ -107,28 +103,10 @@ namespace GemApi.Services
             return stream.ToArray();
         }
 
+        #endregion
 
 
-
-
-
-
-
-        // Single source of truth for the "closing soon" window (in days before CardEndDate)
-        private const int ClosingSoonWindowDays = 1;
-
-        private readonly IGeMBidRepository _repository;
-        private readonly IMapper _mapper;
-
-        public GeMBidService(
-            IGeMBidRepository repository,
-            IMapper mapper)
-        {
-            _repository = repository;
-            _mapper = mapper;
-        }
-
-        // GET ALL BIDS WITH FILTERS AND PAGINATION
+        #region GET ALL BIDS WITH FILTERS AND PAGINATION
         public async Task<
             PagedResponseDto<List<BidListDto>>>
             GetBidsAsync(
@@ -159,7 +137,6 @@ namespace GemApi.Services
                 _mapper.Map<List<BidListDto>>(
                     entities);
 
-            // Populate computed status flags (mapper only maps entity fields 1:1,
             // so status is derived here using CardStartDate/CardEndDate only)
             var now = DateTime.Now;
             foreach (var (dto, entity) in dtoList.Zip(entities, (d, e) => (d, e)))
@@ -371,8 +348,10 @@ namespace GemApi.Services
                 Status = status
             };
         }
+        #endregion
 
-        // DASHBOARD
+
+        #region DASHBOARD
         public async Task<DashboardDto>
             GetDashboardAsync()
         {
@@ -381,9 +360,7 @@ namespace GemApi.Services
             var today = now.Date;
             var closingSoonUpperBound = now.AddDays(ClosingSoonWindowDays);
 
-            // Active-only query — CardStartDate <= now <= CardEndDate.
-            // Reused below for the Yearly/Monthly/Weekly breakdown so those
-            // cards only ever count bids that are currently Active.
+           
             var activeQuery = query.Where(x =>
                 x.CardStartDate <= now
                 &&
@@ -393,10 +370,8 @@ namespace GemApi.Services
             {
                 TotalBids =
                     await query.CountAsync(),
-                // ACTIVE: CardStartDate <= now <= CardEndDate
                 ActiveBids =
                     await activeQuery.CountAsync(),
-                // CLOSING SOON: within ClosingSoonWindowDays of CardEndDate
                 ClosingSoon =
                     await query.CountAsync(
                         x =>
@@ -405,7 +380,6 @@ namespace GemApi.Services
                             &&
                             x.CardEndDate
                             <= closingSoonUpperBound),
-                // EXPIRED: CardEndDate has passed
                 ExpiredBids =
                     await query.CountAsync(
                         x =>
@@ -440,7 +414,7 @@ namespace GemApi.Services
 
             };
 
-            // ---- YEARLY (ACTIVE bids only, grouped by CardStartDate year) ----
+            // ---- YEARLY  ----
             var yearlyRaw =
                 await activeQuery
                     .Where(x =>
@@ -499,7 +473,6 @@ namespace GemApi.Services
                     .ToList();
 
             // ---- WEEKLY (ACTIVE bids only) ----
-            // ISOWeek can't be translated to SQL at all, so raw dates must come back first.
             var startDates =
                 await activeQuery
                     .Where(x =>
@@ -636,8 +609,7 @@ namespace GemApi.Services
                 }
 
                 // EXPIRING THIS WEEK / MONTH / YEAR
-                // Mutually exclusive buckets — same logic as GetDashboardAsync,
-                // so a bid appearing in "week" never appears in "month" or "year", etc.
+               
                 if (request.ExpiringThisWeek == true
                     ||
                     request.ExpiringThisMonth == true
@@ -763,20 +735,7 @@ namespace GemApi.Services
                     request.CardEndDate);
             }
 
-            //// CLOSING DATE
-            //if (request.CardEndDate.HasValue)
-            //{
-            //    query = query.Where(x =>
-            //        x.CardEndDate >=
-            //        request.CardEndDate);
-            //}
-
-            //if (request.ClosingDateTo.HasValue)
-            //{
-            //    query = query.Where(x =>
-            //        x.CardEndDate <=
-            //        request.ClosingDateTo);
-            //}
+         
 
             // ESTIMATED VALUE
             if (request.MinEstimatedValue.HasValue)
@@ -839,15 +798,16 @@ namespace GemApi.Services
 
             return query;
         }
+        #endregion
 
+
+        #region ApplySorting
         private static IQueryable<GeMbidExtract>
            ApplySorting(
                IQueryable<GeMbidExtract> query,
                BidFilterRequestDto request)
         {
-            // Shared status-priority ordering: Closing Soon (0) -> Active (1) -> Expired (2) -> Other (3).
-            // Used both when the caller explicitly asks for sortBy=status AND as the
-            // default ordering when no sortBy is supplied at all.
+            
             IQueryable<GeMbidExtract> StatusPriorityOrder()
             {
                 var now = DateTime.Now;
@@ -922,7 +882,9 @@ namespace GemApi.Services
             => cardEndDate >= now
                && cardEndDate <= now.AddDays(ClosingSoonWindowDays);
 
-        // EMAIL NOTIFICATION SUMMARY
+        #endregion
+
+        #region EMAIL NOTIFICATION SUMMARY
         public async Task<BidNotificationSummaryDto>
             GetNotificationSummaryAsync(
                 int lastProcessedBidId,
@@ -1024,5 +986,6 @@ namespace GemApi.Services
                     categoryCounts
             };
         }
+        #endregion
     }
 }

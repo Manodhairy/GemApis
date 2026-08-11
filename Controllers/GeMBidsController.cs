@@ -69,8 +69,7 @@ namespace GemApi.Controllers
                 fileName);
         }
 
-        // GET api/gembids/GEM/2024/B/1234567
-        // Catch-all route because GeM bid numbers contain slashes.
+        
         [HttpGet("{*bidNumber}")]
         public async Task<IActionResult> GetBidDetails(string bidNumber)
         {

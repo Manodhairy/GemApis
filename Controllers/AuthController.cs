@@ -2,8 +2,10 @@
 using GemApi.Dto.Request;
 using GemApi.Dto.Response;
 using GemApi.Services;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using System.Security.Claims;
 
 namespace GemApi.Controllers
 {
@@ -49,6 +51,30 @@ namespace GemApi.Controllers
                 Email = admin.Email,
                 Role = admin.Role
             });
+        }
+        [Authorize]
+        [Authorize]
+        [HttpPost("logout")]
+        public async Task<IActionResult> Logout()
+        {
+            var userIdStr = User.FindFirstValue(ClaimTypes.NameIdentifier);
+
+            // FIX: Change int to long
+            if (!long.TryParse(userIdStr, out long userId))
+            {
+                return Unauthorized(new { message = "Invalid token claims." });
+            }
+
+            var admin = await _context.Admins.FindAsync(userId);
+            if (admin == null)
+            {
+                return NotFound(new { message = "User not found." });
+            }
+
+            admin.Token = null;
+            await _context.SaveChangesAsync();
+
+            return Ok(new { message = "Logged out successfully." });
         }
     }
 }

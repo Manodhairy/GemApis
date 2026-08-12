@@ -107,8 +107,16 @@ namespace GemApi.Services
                 // SUBJECT
                 // ==========================================
 
-                message.Subject =
-                    $"{summary.NewRecordCount} new GeM bids added";
+                if (summary.NewRecordCount == 0)
+                {
+                    message.Subject =
+                        "GeM Bid Alert - No New Bids";
+                }
+                else
+                {
+                    message.Subject =
+                        $"{summary.NewRecordCount} New GeM Bids Added";
+                }
 
 
                 // ==========================================
@@ -118,11 +126,29 @@ namespace GemApi.Services
                 var bodyBuilder =
                     new BodyBuilder();
 
-                bodyBuilder.TextBody =
-                    $"{summary.NewRecordCount} new GeM bid records have been added.";
 
+                // Plain text version
+                if (summary.NewRecordCount == 0)
+                {
+                    bodyBuilder.TextBody =
+                        "GeM Bid Alert\n\n" +
+                        "No new GeM bids were added " +
+                        "since the previous scheduled notification.\n\n" +
+                        $"Total records: {summary.TotalRecordCount}";
+                }
+                else
+                {
+                    bodyBuilder.TextBody =
+                        $"{summary.NewRecordCount} new GeM bid " +
+                        "records have been added.\n\n" +
+                        $"Total records: {summary.TotalRecordCount}";
+                }
+
+
+                // HTML version
                 bodyBuilder.HtmlBody =
                     html;
+
 
                 message.Body =
                     bodyBuilder.ToMessageBody();
@@ -137,7 +163,7 @@ namespace GemApi.Services
 
 
                 _logger.LogInformation(
-                    "Connecting to Outlook SMTP {Server}:{Port}",
+                    "Connecting to SMTP {Server}:{Port}",
                     _settings.SmtpServer,
                     _settings.Port
                 );
@@ -184,7 +210,8 @@ namespace GemApi.Services
 
 
                 _logger.LogInformation(
-                    "GeM bid email sent successfully to {Count} recipients.",
+                    "GeM bid email sent successfully " +
+                    "to {Count} recipients.",
                     _settings.ReceiverEmails.Count
                 );
 
@@ -285,25 +312,31 @@ namespace GemApi.Services
             var html =
                 new StringBuilder();
 
+
             html.Append(
                 BuildHeaderAndOpeningSection()
             );
+
 
             html.Append(
                 BuildSummarySection(summary)
             );
 
+
             html.Append(
                 BuildCategoryTableHeader()
             );
+
 
             html.Append(
                 BuildCategoryRows(summary)
             );
 
+
             html.Append(
                 BuildFooterSection()
             );
+
 
             return html.ToString();
         }
@@ -325,8 +358,7 @@ namespace GemApi.Services
                 <meta charset="UTF-8">
 
                 <meta name="viewport"
-                      content="width=device-width,
-                               initial-scale=1.0">
+                      content="width=device-width, initial-scale=1.0">
 
                 <title>GeM Bid Alert</title>
 
@@ -478,14 +510,8 @@ namespace GemApi.Services
                             font-size: 12px !important;
                         }
 
-                        /* -----------------------------------
-                           Category table becomes a stacked
-                           "card" list on narrow screens
-                           instead of relying on horizontal
-                           scroll, which many mobile mail
-                           clients (Gmail Android, Outlook
-                           mobile) render inconsistently.
-                           ----------------------------------- */
+
+                        /* CATEGORY TABLE */
 
                         .category-wrapper {
                             width: 100% !important;
@@ -566,7 +592,7 @@ namespace GemApi.Services
                             </h1>
 
                             <p>
-                                New bid records notification
+                                Scheduled bid notification
                             </p>
 
                         </div>
@@ -596,6 +622,22 @@ namespace GemApi.Services
         private static string BuildSummarySection(
             BidNotificationSummaryDto summary)
         {
+            string message;
+
+            if (summary.NewRecordCount == 0)
+            {
+                message =
+                    "No new GeM bids were added " +
+                    "since the previous scheduled notification.";
+            }
+            else
+            {
+                message =
+                    $"{summary.NewRecordCount} new GeM bid " +
+                    "records have been added.";
+            }
+
+
             return $"""
                     <p style="
                         margin:0 0 20px;
@@ -604,10 +646,8 @@ namespace GemApi.Services
                     ">
 
                         <strong>
-                            {summary.NewRecordCount}
+                            {message}
                         </strong>
-
-                        new GeM bid records have been added.
 
                     </p>
 
@@ -764,12 +804,40 @@ namespace GemApi.Services
             var rows =
                 new StringBuilder();
 
-            // Guard against a null collection so the loop
-            // below never throws a NullReferenceException.
-            if (summary.CategoryCounts == null)
+
+            // ==========================================
+            // NO NEW BIDS
+            // ==========================================
+
+            if (
+                summary.CategoryCounts == null ||
+                summary.CategoryCounts.Count == 0)
             {
+                rows.Append("""
+                    <tr>
+
+                        <td colspan="3"
+                            data-label="Status"
+                            style="
+                                text-align:center;
+                                padding:15px;
+                                color:#6b7280;
+                            ">
+
+                            No new bids in this scheduled notification.
+
+                        </td>
+
+                    </tr>
+                    """);
+
                 return rows.ToString();
             }
+
+
+            // ==========================================
+            // CATEGORY ROWS
+            // ==========================================
 
             foreach (
                 var category
@@ -788,38 +856,36 @@ namespace GemApi.Services
                         string.Empty
                     );
 
-                // data-label attributes power the mobile
-                // "card" layout defined in the <style> block
-                // (used via td::before content).
 
                 rows.Append($"""
-                            <tr>
+                    <tr>
 
-                                <td data-label="Category">
+                        <td data-label="Category">
 
-                                    {categoryKey}
+                            {categoryKey}
 
-                                </td>
-
-
-                                <td data-label="Subcategory">
-
-                                    {categorySubKey}
-
-                                </td>
+                        </td>
 
 
-                                <td data-label="Count" style="
-                                    text-align:center;
-                                    font-weight:bold;
-                                ">
+                        <td data-label="Subcategory">
 
-                                    {category.Count}
+                            {categorySubKey}
 
-                                </td>
+                        </td>
 
-                            </tr>
-                """);
+
+                        <td data-label="Count"
+                            style="
+                                text-align:center;
+                                font-weight:bold;
+                            ">
+
+                            {category.Count}
+
+                        </td>
+
+                    </tr>
+                    """);
             }
 
 
@@ -860,16 +926,16 @@ namespace GemApi.Services
                     </div>
 
 
-                <!-- FOOTER -->
+                    <!-- FOOTER -->
 
-                <div class="footer">
+                    <div class="footer">
 
-                    This is an automatically generated email.
+                        This is an automatically generated email.
+
+                    </div>
+
 
                 </div>
-
-
-            </div>
 
             </body>
 

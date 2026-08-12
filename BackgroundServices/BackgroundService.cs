@@ -1,8 +1,10 @@
 ﻿using GemApi.Data;
 using GemApi.Models.Entity;
 using GemApi.Services.Interfaces;
+using GemApi.Settings;
 
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 
 namespace GemApi.BackgroundServices
 {
@@ -10,13 +12,16 @@ namespace GemApi.BackgroundServices
     {
         #region Fields
 
-        // Minimum number of new records required
-        // before sending an email.
-        private const int MinimumRecordCount = 5;
-
         private readonly IServiceScopeFactory _scopeFactory;
 
         private readonly ILogger<BidEmailBackgroundService> _logger;
+
+        private readonly EmailScheduleSettings _scheduleSettings;
+
+        private readonly TimeZoneInfo _indiaTimeZone;
+
+        // Prevent duplicate email during the same scheduled minute
+        private DateTime? _lastSentTime;
 
         #endregion
 
@@ -25,10 +30,31 @@ namespace GemApi.BackgroundServices
 
         public BidEmailBackgroundService(
             IServiceScopeFactory scopeFactory,
-            ILogger<BidEmailBackgroundService> logger)
+            ILogger<BidEmailBackgroundService> logger,
+            IOptions<EmailScheduleSettings> scheduleOptions)
         {
             _scopeFactory = scopeFactory;
+
             _logger = logger;
+
+            _scheduleSettings = scheduleOptions.Value;
+
+            try
+            {
+                // Linux / Docker / Windows with timezone database
+                _indiaTimeZone =
+                    TimeZoneInfo.FindSystemTimeZoneById(
+                        "Asia/Kolkata"
+                    );
+            }
+            catch
+            {
+                // Windows fallback
+                _indiaTimeZone =
+                    TimeZoneInfo.FindSystemTimeZoneById(
+                        "India Standard Time"
+                    );
+            }
         }
 
         #endregion
@@ -43,44 +69,122 @@ namespace GemApi.BackgroundServices
                 "Bid Email Background Service started."
             );
 
-            while (!stoppingToken.IsCancellationRequested)
+            _logger.LogInformation(
+                "Configured email times: {Times}",
+                string.Join(
+                    ", ",
+                    _scheduleSettings.Times
+                )
+            );
+
+
+            while (
+                !stoppingToken.IsCancellationRequested)
             {
                 try
                 {
-                    await CheckNewRecordsAsync(
-                        stoppingToken
+                    // ==========================================
+                    // INDIA CURRENT TIME
+                    // ==========================================
+
+                    DateTime indiaTime =
+                        TimeZoneInfo.ConvertTimeFromUtc(
+                            DateTime.UtcNow,
+                            _indiaTimeZone
+                        );
+
+
+                    _logger.LogDebug(
+                        "Current India Time: {Time}",
+                        indiaTime
                     );
+
+
+                    // ==========================================
+                    // CHECK SCHEDULE
+                    // ==========================================
+
+                    bool isScheduledTime =
+                        IsScheduledTime(indiaTime);
+
+
+                    if (isScheduledTime)
+                    {
+                        // ==========================================
+                        // PREVENT DUPLICATE EMAIL
+                        // ==========================================
+
+                        bool alreadySent =
+                            _lastSentTime.HasValue &&
+                            _lastSentTime.Value.Date ==
+                                indiaTime.Date &&
+                            _lastSentTime.Value.Hour ==
+                                indiaTime.Hour &&
+                            _lastSentTime.Value.Minute ==
+                                indiaTime.Minute;
+
+
+                        if (!alreadySent)
+                        {
+                            _logger.LogInformation(
+                                "Scheduled email time reached: {Time}",
+                                indiaTime
+                            );
+
+
+                            // ==========================================
+                            // SEND EMAIL
+                            // ==========================================
+
+                            await SendScheduledEmailAsync(
+                                stoppingToken
+                            );
+
+
+                            // Mark as sent ONLY after successful email
+                            _lastSentTime =
+                                indiaTime;
+
+
+                            _logger.LogInformation(
+                                "Scheduled email completed at {Time}",
+                                indiaTime
+                            );
+                        }
+                    }
                 }
                 catch (OperationCanceledException)
                     when (stoppingToken.IsCancellationRequested)
                 {
-                    _logger.LogInformation(
-                        "Bid Email Background Service is stopping."
-                    );
-
                     break;
                 }
                 catch (Exception ex)
                 {
                     _logger.LogError(
                         ex,
-                        "Error occurred while checking bids."
+                        "Error occurred in Bid Email Background Service."
                     );
                 }
 
+
+                // ==========================================
+                // CHECK EVERY 30 SECONDS
+                // ==========================================
+
                 try
                 {
-                    // Check database every 1 minute
                     await Task.Delay(
-                        TimeSpan.FromMinutes(1),
+                        TimeSpan.FromSeconds(30),
                         stoppingToken
                     );
                 }
                 catch (OperationCanceledException)
+                    when (stoppingToken.IsCancellationRequested)
                 {
                     break;
                 }
             }
+
 
             _logger.LogInformation(
                 "Bid Email Background Service stopped."
@@ -90,9 +194,48 @@ namespace GemApi.BackgroundServices
         #endregion
 
 
-        #region CheckNewRecordsAsync
+        #region IsScheduledTime
 
-        private async Task CheckNewRecordsAsync(
+        private bool IsScheduledTime(
+            DateTime indiaTime)
+        {
+            // Current time in HH:mm format
+            string currentTime =
+                indiaTime.ToString("HH:mm");
+
+
+            // ==========================================
+            // CHECK APPSETTINGS TIMES
+            // ==========================================
+
+            if (
+                _scheduleSettings.Times == null ||
+                _scheduleSettings.Times.Count == 0)
+            {
+                _logger.LogWarning(
+                    "No EmailSchedule:Times configured."
+                );
+
+                return false;
+            }
+
+
+            return _scheduleSettings.Times.Any(
+                configuredTime =>
+                    string.Equals(
+                        configuredTime.Trim(),
+                        currentTime,
+                        StringComparison.OrdinalIgnoreCase
+                    )
+            );
+        }
+
+        #endregion
+
+
+        #region SendScheduledEmailAsync
+
+        private async Task SendScheduledEmailAsync(
             CancellationToken cancellationToken)
         {
             await using var scope =
@@ -109,7 +252,7 @@ namespace GemApi.BackgroundServices
 
 
             // ==========================================
-            // GEM BID SERVICE
+            // BID SERVICE
             // ==========================================
 
             var bidService =
@@ -139,13 +282,13 @@ namespace GemApi.BackgroundServices
 
 
             _logger.LogInformation(
-                "Current maximum GeM Bid ID: {Id}",
+                "Current maximum Bid ID: {Id}",
                 currentMaximumId
             );
 
 
             // ==========================================
-            // NOTIFICATION STATE
+            // GET NOTIFICATION STATE
             // ==========================================
 
             var state =
@@ -162,16 +305,17 @@ namespace GemApi.BackgroundServices
 
             if (state == null)
             {
-                state = new BidNotificationState
-                {
-                    Id = 1,
+                state =
+                    new BidNotificationState
+                    {
+                        Id = 1,
 
-                    LastProcessedBidId =
-                        currentMaximumId,
+                        LastProcessedBidId =
+                            currentMaximumId,
 
-                    LastCheckedAt =
-                        DateTime.UtcNow
-                };
+                        LastCheckedAt =
+                            DateTime.UtcNow
+                    };
 
 
                 await context.BidNotificationStates
@@ -187,29 +331,24 @@ namespace GemApi.BackgroundServices
 
 
                 _logger.LogInformation(
-                    "Initial Bid Id saved: {Id}",
+                    "Initial Bid ID saved: {Id}",
                     currentMaximumId
                 );
-
-
-                return;
             }
 
 
             // ==========================================
-            // NO NEW RECORDS
+            // PREVIOUS PROCESSED ID
             // ==========================================
 
-            if (
-                currentMaximumId <=
-                state.LastProcessedBidId)
-            {
-                _logger.LogInformation(
-                    "No new GeM bids found."
-                );
+            int lastProcessedId =
+                state.LastProcessedBidId;
 
-                return;
-            }
+
+            _logger.LogInformation(
+                "Last processed Bid ID: {Id}",
+                lastProcessedId
+            );
 
 
             // ==========================================
@@ -219,61 +358,36 @@ namespace GemApi.BackgroundServices
             var summary =
                 await bidService
                     .GetNotificationSummaryAsync(
-                        state.LastProcessedBidId,
+                        lastProcessedId,
                         currentMaximumId
                     );
 
 
             _logger.LogInformation(
-                "Pending new records: {Count}",
+                "New records found: {Count}",
                 summary.NewRecordCount
             );
 
 
             // ==========================================
-            // LESS THAN 5 RECORDS
+            // ALWAYS SEND EMAIL
+            //
+            // 0 bids  -> send email
+            // 5 bids  -> send email
+            // 60 bids -> send email
             // ==========================================
-
-            if (
-                summary.NewRecordCount <
-                MinimumRecordCount)
-            {
-                _logger.LogInformation(
-                    "Email not sent. " +
-                    "Minimum {Minimum} records required. " +
-                    "Current count: {Count}",
-                    MinimumRecordCount,
-                    summary.NewRecordCount
-                );
-
-                // IMPORTANT:
-                // LastProcessedBidId is NOT updated.
-                //
-                // Therefore these records remain pending
-                // for the next check.
-
-                return;
-            }
-
-
-            // ==========================================
-            // SEND EMAIL
-            // ==========================================
-
-            _logger.LogInformation(
-                "Sending GeM bid notification email..."
-            );
-
 
             await emailService
                 .SendBidNotificationAsync(
                     summary,
-                    MinimumRecordCount
+                    0
                 );
 
 
             // ==========================================
-            // EMAIL SUCCESS
+            // UPDATE STATE
+            //
+            // Only update after email succeeds.
             // ==========================================
 
             state.LastProcessedBidId =
@@ -289,9 +403,9 @@ namespace GemApi.BackgroundServices
 
 
             _logger.LogInformation(
-                "{Count} new bids found. " +
-                "Email sent successfully. " +
-                "LastProcessedBidId updated to {Id}.",
+                "Scheduled GeM email sent successfully. " +
+                "New records: {Count}. " +
+                "LastProcessedBidId updated to: {Id}",
                 summary.NewRecordCount,
                 currentMaximumId
             );

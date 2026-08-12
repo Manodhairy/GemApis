@@ -60,7 +60,11 @@ builder.Services.Configure<EmailSettings>(
         "EmailSettings"
     )
 );
-
+builder.Services.Configure<EmailScheduleSettings>(
+    builder.Configuration.GetSection(
+        "EmailSchedule"
+    )
+);
 
 
 builder.Services.AddHostedService<

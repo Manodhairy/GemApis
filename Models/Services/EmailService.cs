@@ -1,9 +1,14 @@
 ﻿using GemApi.DTOs.Response;
 using GemApi.Services.Interfaces;
 using GemApi.Settings;
+
+using MailKit.Net.Smtp;
+using MailKit.Security;
+
 using Microsoft.Extensions.Options;
-using SendGrid;
-using SendGrid.Helpers.Mail;
+
+using MimeKit;
+
 using System.Text;
 using System.Text.Encodings.Web;
 
@@ -11,271 +16,582 @@ namespace GemApi.Services
 {
     public class EmailService : IEmailService
     {
-        #region Field
+        #region Fields
+
         private readonly EmailSettings _settings;
+
         private readonly ILogger<EmailService> _logger;
 
         #endregion
 
+
         #region Constructor
-        public EmailService(IOptions<EmailSettings> options, ILogger<EmailService> logger)
+
+        public EmailService(
+            IOptions<EmailSettings> options,
+            ILogger<EmailService> logger)
         {
             _settings = options.Value;
+
             _logger = logger;
         }
-        #endregion SendBidNotificationAsync
+
+        #endregion
+
 
         #region SendBidNotificationAsync
-        public async Task SendBidNotificationAsync(BidNotificationSummaryDto summary, int minimumRecordCount)
+
+        public async Task SendBidNotificationAsync(
+            BidNotificationSummaryDto summary,
+            int minimumRecordCount)
         {
             try
             {
-                var html = BuildEmailHtml(summary);
+                // ==========================================
+                // VALIDATE SETTINGS
+                // ==========================================
 
                 ValidateSettings();
 
-                var client = new SendGridClient(_settings.ApiKey);
-                var from = new EmailAddress(_settings.SenderEmail.Trim(), _settings.SenderName);
-                var subject = $"{summary.NewRecordCount} new GeM bids added";
-                var toList = GetRecipients();
 
-                var msg = MailHelper.CreateSingleEmailToMultipleRecipients(
-                    from,
-                    toList,
-                    subject,
-                    plainTextContent: $"{summary.NewRecordCount} new GeM bid records have been added.",
-                    htmlContent: html);
+                // ==========================================
+                // BUILD HTML
+                // ==========================================
 
-                _logger.LogInformation("Sending GeM bid email to {Count} recipients.", toList.Count);
+                var html =
+                    BuildEmailHtml(summary);
 
-                var response = await client.SendEmailAsync(msg);
 
-                await EnsureSuccessAsync(response);
+                // ==========================================
+                // CREATE MESSAGE
+                // ==========================================
 
-                _logger.LogInformation("GeM bid email sent successfully to {Count} recipients.", toList.Count);
+                var message =
+                    new MimeMessage();
+
+
+                // ==========================================
+                // FROM
+                // ==========================================
+
+                message.From.Add(
+                    new MailboxAddress(
+                        _settings.SenderName,
+                        _settings.SenderEmail
+                    )
+                );
+
+
+                // ==========================================
+                // TO
+                // ==========================================
+
+                foreach (
+                    var receiver
+                    in _settings.ReceiverEmails)
+                {
+                    if (
+                        !string.IsNullOrWhiteSpace(
+                            receiver))
+                    {
+                        message.To.Add(
+                            MailboxAddress.Parse(
+                                receiver.Trim()
+                            )
+                        );
+                    }
+                }
+
+
+                // ==========================================
+                // SUBJECT
+                // ==========================================
+
+                message.Subject =
+                    $"{summary.NewRecordCount} new GeM bids added";
+
+
+                // ==========================================
+                // BODY
+                // ==========================================
+
+                var bodyBuilder =
+                    new BodyBuilder();
+
+                bodyBuilder.TextBody =
+                    $"{summary.NewRecordCount} new GeM bid records have been added.";
+
+                bodyBuilder.HtmlBody =
+                    html;
+
+                message.Body =
+                    bodyBuilder.ToMessageBody();
+
+
+                // ==========================================
+                // SMTP CLIENT
+                // ==========================================
+
+                using var smtp =
+                    new SmtpClient();
+
+
+                _logger.LogInformation(
+                    "Connecting to Outlook SMTP {Server}:{Port}",
+                    _settings.SmtpServer,
+                    _settings.Port
+                );
+
+
+                // ==========================================
+                // CONNECT
+                // ==========================================
+
+                await smtp.ConnectAsync(
+                    _settings.SmtpServer,
+                    _settings.Port,
+                    SecureSocketOptions.StartTls
+                );
+
+
+                _logger.LogInformation(
+                    "SMTP connection successful."
+                );
+
+
+                // ==========================================
+                // AUTHENTICATE
+                // ==========================================
+
+                await smtp.AuthenticateAsync(
+                    _settings.SenderEmail,
+                    _settings.Password
+                );
+
+
+                _logger.LogInformation(
+                    "SMTP authentication successful."
+                );
+
+
+                // ==========================================
+                // SEND
+                // ==========================================
+
+                await smtp.SendAsync(
+                    message
+                );
+
+
+                _logger.LogInformation(
+                    "GeM bid email sent successfully to {Count} recipients.",
+                    _settings.ReceiverEmails.Count
+                );
+
+
+                // ==========================================
+                // DISCONNECT
+                // ==========================================
+
+                await smtp.DisconnectAsync(
+                    true
+                );
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed to send GeM bid notification email.");
+                _logger.LogError(
+                    ex,
+                    "Failed to send GeM bid notification email."
+                );
+
                 throw;
             }
         }
 
         #endregion
 
-        #region VALIDATION
 
+        #region ValidateSettings
 
         private void ValidateSettings()
         {
-            if (string.IsNullOrWhiteSpace(_settings.ApiKey))
+            if (
+                string.IsNullOrWhiteSpace(
+                    _settings.SenderEmail))
             {
                 throw new InvalidOperationException(
-                    "SendGrid API key is missing. Check EmailSettings:ApiKey in User Secrets.");
+                    "EmailSettings:SenderEmail is not configured."
+                );
             }
 
-            if (string.IsNullOrWhiteSpace(_settings.SenderEmail))
+
+            if (
+                string.IsNullOrWhiteSpace(
+                    _settings.SenderName))
             {
-                throw new InvalidOperationException("Sender email is not configured.");
-            }
-        }
-
-        private List<EmailAddress> GetRecipients()
-        {
-            var toList = _settings.ReceiverEmails
-                .Where(r => !string.IsNullOrWhiteSpace(r))
-                .Select(r => new EmailAddress(r.Trim()))
-                .ToList();
-
-            if (toList.Count == 0)
-            {
-                throw new InvalidOperationException("No receiver emails configured.");
-            }
-
-            return toList;
-        }
-
-        private async Task EnsureSuccessAsync(Response response)
-        {
-            if ((int)response.StatusCode >= 400)
-            {
-                var responseBody = await response.Body.ReadAsStringAsync();
-
-                _logger.LogError(
-                    "SendGrid failed. Status: {StatusCode}, Response: {Response}",
-                    response.StatusCode,
-                    responseBody);
-
                 throw new InvalidOperationException(
-                    $"SendGrid returned {(int)response.StatusCode}: {responseBody}");
+                    "EmailSettings:SenderName is not configured."
+                );
+            }
+
+
+            if (
+                string.IsNullOrWhiteSpace(
+                    _settings.SmtpServer))
+            {
+                throw new InvalidOperationException(
+                    "EmailSettings:SmtpServer is not configured."
+                );
+            }
+
+
+            if (
+                _settings.Port <= 0)
+            {
+                throw new InvalidOperationException(
+                    "EmailSettings:Port is not configured."
+                );
+            }
+
+
+            if (
+                string.IsNullOrWhiteSpace(
+                    _settings.Password))
+            {
+                throw new InvalidOperationException(
+                    "EmailSettings:Password is not configured."
+                );
+            }
+
+
+            if (
+                _settings.ReceiverEmails == null ||
+                _settings.ReceiverEmails.Count == 0)
+            {
+                throw new InvalidOperationException(
+                    "No receiver emails configured."
+                );
             }
         }
 
         #endregion
 
-        #region HTML BUILDING
 
+        #region BuildEmailHtml
 
-        private string BuildEmailHtml(BidNotificationSummaryDto summary)
+        private string BuildEmailHtml(
+            BidNotificationSummaryDto summary)
         {
-            var html = new StringBuilder();
+            var html =
+                new StringBuilder();
 
-            html.Append(BuildHeaderAndOpeningSection());
-            html.Append(BuildSummarySection(summary));
-            html.Append(BuildCategoryTableHeader());
-            html.Append(BuildCategoryRows(summary));
-            html.Append(BuildFooterSection());
+            html.Append(
+                BuildHeaderAndOpeningSection()
+            );
+
+            html.Append(
+                BuildSummarySection(summary)
+            );
+
+            html.Append(
+                BuildCategoryTableHeader()
+            );
+
+            html.Append(
+                BuildCategoryRows(summary)
+            );
+
+            html.Append(
+                BuildFooterSection()
+            );
 
             return html.ToString();
         }
 
+        #endregion
+
+
+        #region Header
+
         private static string BuildHeaderAndOpeningSection()
         {
             return """
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <meta charset="UTF-8">
-            <meta name="viewport"
-                  content="width=device-width, initial-scale=1.0">
+            <!DOCTYPE html>
 
-            <title>GeM Bid Alert</title>
+            <html>
 
-            <style>
-                @media only screen and (max-width: 600px) {
+            <head>
+
+                <meta charset="UTF-8">
+
+                <meta name="viewport"
+                      content="width=device-width,
+                               initial-scale=1.0">
+
+                <title>GeM Bid Alert</title>
+
+                <style>
+
+                    * {
+                        box-sizing: border-box;
+                    }
+
+                    html,
+                    body {
+                        margin: 0;
+                        padding: 0;
+                        width: 100%;
+                    }
+
+                    body {
+                        background-color: #f3f4f6;
+                        font-family: Arial,
+                                     Helvetica,
+                                     sans-serif;
+                        color: #1f2937;
+                    }
 
                     .email-wrapper {
-                        width: 100% !important;
-                        padding: 10px !important;
+                        width: 100%;
+                        padding: 25px 10px;
                     }
 
                     .email-container {
-                        width: 100% !important;
-                        border-radius: 8px !important;
+                        width: 100%;
+                        max-width: 750px;
+                        margin: 0 auto;
+                        background-color: #ffffff;
+                        border-radius: 12px;
+                        overflow: hidden;
                     }
 
                     .email-header {
-                        padding: 20px 15px !important;
+                        background-color: #1d4ed8;
+                        color: #ffffff;
+                        padding: 25px 20px;
+                        text-align: center;
                     }
 
                     .email-header h1 {
-                        font-size: 22px !important;
+                        margin: 0;
+                        font-size: 26px;
+                        line-height: 1.3;
+                    }
+
+                    .email-header p {
+                        margin: 8px 0 0;
+                        font-size: 15px;
+                        line-height: 1.5;
                     }
 
                     .email-body {
-                        padding: 18px 14px !important;
+                        padding: 25px;
                     }
 
-                    .email-body p {
-                        font-size: 14px !important;
+                    .summary-table {
+                        width: 100%;
+                        border-collapse: collapse;
                     }
 
                     .summary-table td {
-                        padding: 10px 8px !important;
-                        font-size: 13px !important;
+                        padding: 12px;
+                        border: 1px solid #d1d5db;
+                        font-size: 14px;
+                    }
+
+                    .category-wrapper {
+                        width: 100%;
+                        overflow-x: auto;
+                        -webkit-overflow-scrolling: touch;
+                    }
+
+                    .category-table {
+                        width: 100%;
+                        min-width: 500px;
+                        border-collapse: collapse;
+                        table-layout: fixed;
                     }
 
                     .category-table th,
                     .category-table td {
-                        padding: 8px 6px !important;
-                        font-size: 12px !important;
+                        padding: 11px 8px;
+                        border: 1px solid #d1d5db;
+                        word-break: break-word;
+                        overflow-wrap: anywhere;
+                        font-size: 14px;
                     }
 
-                    .category-table th:nth-child(1),
-                    .category-table td:nth-child(1) {
-                        width: 35% !important;
-                    }
-
-                    .category-table th:nth-child(2),
-                    .category-table td:nth-child(2) {
-                        width: 45% !important;
-                    }
-
-                    .category-table th:nth-child(3),
-                    .category-table td:nth-child(3) {
-                        width: 20% !important;
+                    .category-table th {
+                        background-color: #1d4ed8;
+                        color: #ffffff;
+                        text-align: left;
                     }
 
                     .footer {
-                        padding: 12px !important;
-                        font-size: 11px !important;
+                        padding: 15px;
+                        text-align: center;
+                        background-color: #f9fafb;
+                        color: #6b7280;
+                        font-size: 12px;
+                        line-height: 1.5;
                     }
-                }
-            </style>
-        </head>
 
-        <body style="
-            margin:0;
-            padding:0;
-            background-color:#f3f4f6;
-            font-family:Arial,Helvetica,sans-serif;
-            color:#1f2937;
-        ">
 
-            <div class="email-wrapper"
-                 style="
-                    width:100%;
-                    padding:25px 10px;
-                    box-sizing:border-box;
-                 ">
+                    /* =====================================
+                       MOBILE
+                       ===================================== */
 
-                <div class="email-container"
-                     style="
-                        max-width:750px;
-                        width:100%;
-                        margin:0 auto;
-                        background-color:#ffffff;
-                        border-radius:12px;
-                        overflow:hidden;
-                        box-shadow:0 4px 12px rgba(0,0,0,0.08);
-                     ">
+                    @media only screen and (max-width: 600px)
+                    {
 
-                    <!-- HEADER -->
+                        .email-wrapper {
+                            padding: 5px !important;
+                        }
 
-                    <div class="email-header"
-                         style="
-                            background-color:#1d4ed8;
-                            color:#ffffff;
-                            padding:25px 20px;
-                            text-align:center;
-                         ">
+                        .email-container {
+                            width: 100% !important;
+                            border-radius: 6px !important;
+                        }
 
-                        <h1 style="
-                            margin:0;
-                            font-size:26px;
-                            line-height:1.3;
-                        ">
-                            GeM Bid Alert
-                        </h1>
+                        .email-header {
+                            padding: 20px 12px !important;
+                        }
 
-                        <p style="
-                            margin:8px 0 0;
-                            font-size:15px;
-                            line-height:1.5;
-                        ">
-                            New bid records notification
-                        </p>
+                        .email-header h1 {
+                            font-size: 21px !important;
+                        }
 
-                    </div>
+                        .email-header p {
+                            font-size: 13px !important;
+                        }
 
-                    <!-- BODY -->
+                        .email-body {
+                            padding: 15px 10px !important;
+                        }
 
-                    <div class="email-body"
-                         style="
-                            padding:25px;
-                            box-sizing:border-box;
-                         ">
+                        .email-body p {
+                            font-size: 14px !important;
+                        }
 
-                        <p style="
-                            margin:0 0 15px;
-                            font-size:16px;
-                            line-height:1.6;
-                        ">
-                            Hello,
-                        </p>
-        """;
+                        .summary-table td {
+                            padding: 9px 7px !important;
+                            font-size: 12px !important;
+                        }
+
+                        /* -----------------------------------
+                           Category table becomes a stacked
+                           "card" list on narrow screens
+                           instead of relying on horizontal
+                           scroll, which many mobile mail
+                           clients (Gmail Android, Outlook
+                           mobile) render inconsistently.
+                           ----------------------------------- */
+
+                        .category-wrapper {
+                            width: 100% !important;
+                            overflow-x: visible !important;
+                        }
+
+                        .category-table {
+                            min-width: 0 !important;
+                            width: 100% !important;
+                            table-layout: auto !important;
+                        }
+
+                        .category-table thead {
+                            display: none !important;
+                        }
+
+                        .category-table,
+                        .category-table tbody,
+                        .category-table tr,
+                        .category-table td {
+                            display: block !important;
+                            width: 100% !important;
+                        }
+
+                        .category-table tr {
+                            margin-bottom: 10px !important;
+                            border: 1px solid #d1d5db !important;
+                            border-radius: 6px !important;
+                            overflow: hidden !important;
+                        }
+
+                        .category-table td {
+                            text-align: left !important;
+                            border: none !important;
+                            border-bottom: 1px solid #e5e7eb !important;
+                            padding: 8px 10px !important;
+                            font-size: 12px !important;
+                        }
+
+                        .category-table td:last-child {
+                            border-bottom: none !important;
+                        }
+
+                        .category-table td::before {
+                            content: attr(data-label);
+                            display: block;
+                            font-weight: bold;
+                            font-size: 10px;
+                            text-transform: uppercase;
+                            color: #1d4ed8;
+                            margin-bottom: 2px;
+                        }
+
+                        .footer {
+                            padding: 12px !important;
+                            font-size: 10px !important;
+                        }
+                    }
+
+                </style>
+
+            </head>
+
+
+            <body>
+
+                <div class="email-wrapper">
+
+                    <div class="email-container">
+
+
+                        <!-- HEADER -->
+
+                        <div class="email-header">
+
+                            <h1>
+                                GeM Bid Alert
+                            </h1>
+
+                            <p>
+                                New bid records notification
+                            </p>
+
+                        </div>
+
+
+                        <!-- BODY -->
+
+                        <div class="email-body">
+
+                            <p style="
+                                margin:0 0 15px;
+                                font-size:16px;
+                                line-height:1.6;
+                            ">
+
+                                Hello,
+
+                            </p>
+            """;
         }
 
+        #endregion
+
+
+        #region Summary
 
         private static string BuildSummarySection(
             BidNotificationSummaryDto summary)
@@ -286,9 +602,15 @@ namespace GemApi.Services
                         font-size:16px;
                         line-height:1.6;
                     ">
-                        <strong>{summary.NewRecordCount}</strong>
+
+                        <strong>
+                            {summary.NewRecordCount}
+                        </strong>
+
                         new GeM bid records have been added.
+
                     </p>
+
 
                     <h2 style="
                         margin:25px 0 12px;
@@ -296,62 +618,63 @@ namespace GemApi.Services
                         line-height:1.4;
                         color:#1d4ed8;
                     ">
+
                         Summary
+
                     </h2>
+
 
                     <table class="summary-table"
                            width="100%"
                            cellpadding="0"
                            cellspacing="0"
-                           border="0"
-                           style="
-                                width:100%;
-                                border-collapse:collapse;
-                                font-size:14px;
-                           ">
+                           border="0">
 
                         <tbody>
 
                             <tr>
 
                                 <td style="
-                                    padding:12px;
-                                    border:1px solid #d1d5db;
                                     background-color:#eff6ff;
                                     font-weight:bold;
                                 ">
+
                                     New records added
+
                                 </td>
 
+
                                 <td style="
-                                    padding:12px;
-                                    border:1px solid #d1d5db;
                                     color:#15803d;
                                     font-weight:bold;
                                     text-align:right;
                                 ">
+
                                     {summary.NewRecordCount}
+
                                 </td>
 
                             </tr>
 
+
                             <tr>
 
                                 <td style="
-                                    padding:12px;
-                                    border:1px solid #d1d5db;
                                     background-color:#eff6ff;
                                     font-weight:bold;
                                 ">
+
                                     Total records
+
                                 </td>
 
+
                                 <td style="
-                                    padding:12px;
-                                    border:1px solid #d1d5db;
                                     text-align:right;
                                 ">
+
                                     {summary.TotalRecordCount}
+
                                 </td>
 
                             </tr>
@@ -359,9 +682,13 @@ namespace GemApi.Services
                         </tbody>
 
                     </table>
-        """;
+            """;
         }
 
+        #endregion
+
+
+        #region Category Header
 
         private static string BuildCategoryTableHeader()
         {
@@ -372,124 +699,137 @@ namespace GemApi.Services
                         line-height:1.4;
                         color:#1d4ed8;
                     ">
+
                         Category and Subcategory Count
+
                     </h2>
 
-                    <div style="
-                        width:100%;
-                        overflow-x:auto;
-                    ">
+
+                    <div class="category-wrapper">
 
                         <table class="category-table"
                                width="100%"
                                cellpadding="0"
                                cellspacing="0"
-                               border="0"
-                               style="
-                                    width:100%;
-                                    border-collapse:collapse;
-                                    table-layout:fixed;
-                                    font-size:14px;
-                               ">
+                               border="0">
 
                             <thead>
 
-                                <tr style="
-                                    background-color:#1d4ed8;
-                                    color:#ffffff;
-                                ">
+                                <tr>
 
                                     <th style="
                                         width:35%;
-                                        padding:12px 8px;
-                                        border:1px solid #d1d5db;
-                                        text-align:left;
-                                        word-break:break-word;
                                     ">
+
                                         Category
+
                                     </th>
+
 
                                     <th style="
                                         width:45%;
-                                        padding:12px 8px;
-                                        border:1px solid #d1d5db;
-                                        text-align:left;
-                                        word-break:break-word;
                                     ">
+
                                         Subcategory
+
                                     </th>
+
 
                                     <th style="
                                         width:20%;
-                                        padding:12px 8px;
-                                        border:1px solid #d1d5db;
                                         text-align:center;
                                     ">
+
                                         Count
+
                                     </th>
 
                                 </tr>
 
                             </thead>
 
+
                             <tbody>
-        """;
+            """;
         }
 
+        #endregion
+
+
+        #region Category Rows
 
         private static string BuildCategoryRows(
             BidNotificationSummaryDto summary)
         {
-            var rows = new StringBuilder();
+            var rows =
+                new StringBuilder();
 
-            foreach (var category in summary.CategoryCounts)
+            // Guard against a null collection so the loop
+            // below never throws a NullReferenceException.
+            if (summary.CategoryCounts == null)
+            {
+                return rows.ToString();
+            }
+
+            foreach (
+                var category
+                in summary.CategoryCounts)
             {
                 var categoryKey =
                     HtmlEncoder.Default.Encode(
-                        category.CategoryKey ?? string.Empty);
+                        category.CategoryKey ??
+                        string.Empty
+                    );
+
 
                 var categorySubKey =
                     HtmlEncoder.Default.Encode(
-                        category.CategorySubKey ?? string.Empty);
+                        category.CategorySubKey ??
+                        string.Empty
+                    );
+
+                // data-label attributes power the mobile
+                // "card" layout defined in the <style> block
+                // (used via td::before content).
 
                 rows.Append($"""
                             <tr>
 
-                                <td style="
-                                    padding:11px 8px;
-                                    border:1px solid #d1d5db;
-                                    word-break:break-word;
-                                    overflow-wrap:anywhere;
-                                ">
+                                <td data-label="Category">
+
                                     {categoryKey}
+
                                 </td>
 
-                                <td style="
-                                    padding:11px 8px;
-                                    border:1px solid #d1d5db;
-                                    word-break:break-word;
-                                    overflow-wrap:anywhere;
-                                ">
+
+                                <td data-label="Subcategory">
+
                                     {categorySubKey}
+
                                 </td>
 
-                                <td style="
-                                    padding:11px 8px;
-                                    border:1px solid #d1d5db;
+
+                                <td data-label="Count" style="
                                     text-align:center;
                                     font-weight:bold;
-                                    white-space:nowrap;
                                 ">
+
                                     {category.Count}
+
                                 </td>
 
                             </tr>
-            """);
+                """);
             }
+
 
             return rows.ToString();
         }
 
+        #endregion
+
+
+        #region Footer
 
         private static string BuildFooterSection()
         {
@@ -500,43 +840,44 @@ namespace GemApi.Services
 
                     </div>
 
+
                     <p style="
                         margin:30px 0 0;
                         color:#4b5563;
                         font-size:14px;
                         line-height:1.6;
                     ">
+
                         Thank you,<br>
-                        <strong>GeM Bid Alert System</strong>
+
+                        <strong>
+                            GeM Bid Alert System
+                        </strong>
+
                     </p>
 
-                </div>
+
+                    </div>
+
 
                 <!-- FOOTER -->
 
-                <div class="footer"
-                     style="
-                        padding:15px;
-                        text-align:center;
-                        background-color:#f9fafb;
-                        color:#6b7280;
-                        font-size:12px;
-                        line-height:1.5;
-                     ">
+                <div class="footer">
 
                     This is an automatically generated email.
 
                 </div>
 
+
             </div>
 
-        </body>
-        </html>
-        """;
+            </body>
+
+            </html>
+
+            """;
         }
 
         #endregion
-
-
     }
 }

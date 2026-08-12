@@ -1,25 +1,28 @@
 ﻿using GemApi.Data;
 using GemApi.Models.Entity;
 using GemApi.Services.Interfaces;
+
 using Microsoft.EntityFrameworkCore;
 
 namespace GemApi.BackgroundServices
 {
     public class BidEmailBackgroundService : BackgroundService
     {
-        #region Field
-        // Minimum records required before sending mail
+        #region Fields
+
+        // Minimum number of new records required
+        // before sending an email.
         private const int MinimumRecordCount = 5;
 
-        private readonly IServiceScopeFactory
-            _scopeFactory;
+        private readonly IServiceScopeFactory _scopeFactory;
 
-        private readonly ILogger
-            <BidEmailBackgroundService> _logger;
+        private readonly ILogger<BidEmailBackgroundService> _logger;
+
         #endregion
 
 
         #region Constructor
+
         public BidEmailBackgroundService(
             IServiceScopeFactory scopeFactory,
             ILogger<BidEmailBackgroundService> logger)
@@ -27,20 +30,35 @@ namespace GemApi.BackgroundServices
             _scopeFactory = scopeFactory;
             _logger = logger;
         }
+
         #endregion
 
+
         #region ExecuteAsync
+
         protected override async Task ExecuteAsync(
             CancellationToken stoppingToken)
         {
-            while (!stoppingToken
-                .IsCancellationRequested)
+            _logger.LogInformation(
+                "Bid Email Background Service started."
+            );
+
+            while (!stoppingToken.IsCancellationRequested)
             {
                 try
                 {
                     await CheckNewRecordsAsync(
                         stoppingToken
                     );
+                }
+                catch (OperationCanceledException)
+                    when (stoppingToken.IsCancellationRequested)
+                {
+                    _logger.LogInformation(
+                        "Bid Email Background Service is stopping."
+                    );
+
+                    break;
                 }
                 catch (Exception ex)
                 {
@@ -50,38 +68,67 @@ namespace GemApi.BackgroundServices
                     );
                 }
 
-                // Check the database every 1 minute
-                await Task.Delay(
-                    TimeSpan.FromMinutes(1),
-                    stoppingToken
-                );
+                try
+                {
+                    // Check database every 1 minute
+                    await Task.Delay(
+                        TimeSpan.FromMinutes(1),
+                        stoppingToken
+                    );
+                }
+                catch (OperationCanceledException)
+                {
+                    break;
+                }
             }
+
+            _logger.LogInformation(
+                "Bid Email Background Service stopped."
+            );
         }
+
         #endregion
 
 
         #region CheckNewRecordsAsync
+
         private async Task CheckNewRecordsAsync(
             CancellationToken cancellationToken)
         {
-            using var scope =
-                _scopeFactory.CreateScope();
+            await using var scope =
+                _scopeFactory.CreateAsyncScope();
+
+
+            // ==========================================
+            // DATABASE
+            // ==========================================
 
             var context =
                 scope.ServiceProvider
-                    .GetRequiredService<
-                        ApplicationDbContext>();
+                    .GetRequiredService<ApplicationDbContext>();
 
-            // Existing GeMBidService reference
+
+            // ==========================================
+            // GEM BID SERVICE
+            // ==========================================
+
             var bidService =
                 scope.ServiceProvider
-                    .GetRequiredService<
-                        IGeMBidService>();
+                    .GetRequiredService<IGeMBidService>();
+
+
+            // ==========================================
+            // EMAIL SERVICE
+            // ==========================================
 
             var emailService =
                 scope.ServiceProvider
-                    .GetRequiredService<
-                        IEmailService>();
+                    .GetRequiredService<IEmailService>();
+
+
+            // ==========================================
+            // CURRENT MAXIMUM BID ID
+            // ==========================================
 
             int currentMaximumId =
                 await context.GeMbidExtracts
@@ -90,6 +137,17 @@ namespace GemApi.BackgroundServices
                         cancellationToken
                     ) ?? 0;
 
+
+            _logger.LogInformation(
+                "Current maximum GeM Bid ID: {Id}",
+                currentMaximumId
+            );
+
+
+            // ==========================================
+            // NOTIFICATION STATE
+            // ==========================================
+
             var state =
                 await context.BidNotificationStates
                     .FirstOrDefaultAsync(
@@ -97,17 +155,24 @@ namespace GemApi.BackgroundServices
                         cancellationToken
                     );
 
-            // First application run
+
+            // ==========================================
+            // FIRST APPLICATION RUN
+            // ==========================================
+
             if (state == null)
             {
                 state = new BidNotificationState
                 {
                     Id = 1,
+
                     LastProcessedBidId =
                         currentMaximumId,
+
                     LastCheckedAt =
                         DateTime.UtcNow
                 };
+
 
                 await context.BidNotificationStates
                     .AddAsync(
@@ -115,25 +180,42 @@ namespace GemApi.BackgroundServices
                         cancellationToken
                     );
 
+
                 await context.SaveChangesAsync(
                     cancellationToken
                 );
+
 
                 _logger.LogInformation(
                     "Initial Bid Id saved: {Id}",
                     currentMaximumId
                 );
 
+
                 return;
             }
 
-            if (currentMaximumId <=
+
+            // ==========================================
+            // NO NEW RECORDS
+            // ==========================================
+
+            if (
+                currentMaximumId <=
                 state.LastProcessedBidId)
             {
+                _logger.LogInformation(
+                    "No new GeM bids found."
+                );
+
                 return;
             }
 
-            // Service calculates the actual counts
+
+            // ==========================================
+            // GET NEW BID SUMMARY
+            // ==========================================
+
             var summary =
                 await bidService
                     .GetNotificationSummaryAsync(
@@ -141,48 +223,80 @@ namespace GemApi.BackgroundServices
                         currentMaximumId
                     );
 
+
             _logger.LogInformation(
                 "Pending new records: {Count}",
                 summary.NewRecordCount
             );
 
-            // If fewer than MinimumRecordCount records, don't send mail
-            // and don't update LastProcessedBidId either.
-            // The count will accumulate with the next batch.
-            if (summary.NewRecordCount <
+
+            // ==========================================
+            // LESS THAN 5 RECORDS
+            // ==========================================
+
+            if (
+                summary.NewRecordCount <
                 MinimumRecordCount)
             {
                 _logger.LogInformation(
-                    "Email not sent. Minimum {Minimum} records required.",
-                    MinimumRecordCount
+                    "Email not sent. " +
+                    "Minimum {Minimum} records required. " +
+                    "Current count: {Count}",
+                    MinimumRecordCount,
+                    summary.NewRecordCount
                 );
+
+                // IMPORTANT:
+                // LastProcessedBidId is NOT updated.
+                //
+                // Therefore these records remain pending
+                // for the next check.
 
                 return;
             }
 
-            // Send mail once threshold is reached
+
+            // ==========================================
+            // SEND EMAIL
+            // ==========================================
+
+            _logger.LogInformation(
+                "Sending GeM bid notification email..."
+            );
+
+
             await emailService
                 .SendBidNotificationAsync(
                     summary,
                     MinimumRecordCount
                 );
 
-            // Only update state once mail succeeds
+
+            // ==========================================
+            // EMAIL SUCCESS
+            // ==========================================
+
             state.LastProcessedBidId =
                 currentMaximumId;
 
             state.LastCheckedAt =
                 DateTime.UtcNow;
 
+
             await context.SaveChangesAsync(
                 cancellationToken
             );
 
+
             _logger.LogInformation(
-                "{Count} new bids found. Email sent.",
-                summary.NewRecordCount
+                "{Count} new bids found. " +
+                "Email sent successfully. " +
+                "LastProcessedBidId updated to {Id}.",
+                summary.NewRecordCount,
+                currentMaximumId
             );
         }
+
         #endregion
     }
 }

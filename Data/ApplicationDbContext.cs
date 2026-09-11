@@ -22,8 +22,9 @@ public partial class ApplicationDbContext : DbContext
 
     public virtual DbSet<Admin> Admins { get; set; }
 
+    public virtual DbSet<PuneBidAlertSent> PuneBidAlertSents { get; set; }
+    public virtual DbSet<PuneBidAlertState> PuneBidAlertStates { get; set; }
 
-   
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.Entity<BidNotificationState>(entity =>

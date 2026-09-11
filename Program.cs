@@ -51,6 +51,11 @@ builder.Services.AddScoped<
     IEmailService,
     EmailService
 >();
+builder.Services.AddScoped<IPuneBidAlertService, PuneBidAlertService>();
+builder.Services.Configure<PuneBidAlertSettings>(
+    builder.Configuration.GetSection("PuneBidAlert"));
+builder.Services.AddHostedService<PuneBidAlertBackgroundService>();
+builder.Services.AddScoped<IPuneBidEmailService, PuneBidEmailService>();
 
 #endregion
 

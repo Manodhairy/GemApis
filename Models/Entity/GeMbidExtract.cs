@@ -28,6 +28,8 @@ public partial class GeMbidExtract
 
     public DateTime CreatedOn { get; set; }
 
+    public DateTime? UpdatedOn { get; set; }
+
     public DateTime? BidEndDateTime { get; set; }
 
     public DateTime? BidOpeningDateTime { get; set; }

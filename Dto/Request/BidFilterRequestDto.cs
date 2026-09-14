@@ -9,7 +9,7 @@
         public string? Ministry { get; set; }
         public string? DepartmentName { get; set; }
         public string? OrganisationName { get; set; }
-        public string? OfficeName { get; set; }
+        public string? ConsigneeName { get; set; }
 
         // Category Filters
         public string? CategoryKey { get; set; }

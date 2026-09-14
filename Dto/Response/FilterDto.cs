@@ -5,7 +5,7 @@
         public List<FilterItemDto> Ministries { get; set; } = new();
         public List<FilterItemDto> Departments { get; set; } = new();
         public List<FilterItemDto> Organisations { get; set; } = new();
-        public List<FilterItemDto> Offices { get; set; } = new();
+        public List<FilterItemDto> Consignees { get; set; } = new();
         public List<CategoryDto> Categories { get; set; } = new();
         public StatusCountDto Status { get; set; } = new();
     }

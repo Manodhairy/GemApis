@@ -57,7 +57,7 @@ namespace GemApi.Services
                     BidNumber = x.BidNumber,
                     Department = x.DepartmentName,
                     Organisation = x.OrganisationName,
-                    Location = x.OfficeName,
+                    Location = x.ConsigneeName,
                     Category = x.CategoryKey,
                     SubCategory = x.CategorySubKey,
                     BidStartDate = x.CardStartDate,
@@ -234,23 +234,20 @@ namespace GemApi.Services
                         x.Count)
                     .ToListAsync();
 
-            var offices =
-                await BuildFilteredQuery(
-                        request,
-                        exclude: "Office")
-                    .Where(x =>
-                        x.OfficeName != null)
-                    .GroupBy(x =>
-                        x.OfficeName)
-                    .Select(group =>
-                        new FilterItemDto
-                        {
-                            Name = group.Key!,
-                            Count = group.Count()
-                        })
-                    .OrderByDescending(x =>
-                        x.Count)
-                    .ToListAsync();
+            var consignees =
+    await BuildFilteredQuery(
+            request,
+            exclude: "Consignee")
+        .Where(x => x.ConsigneeName != null)
+        .GroupBy(x => x.ConsigneeName)
+        .Select(group =>
+            new FilterItemDto
+            {
+                Name = group.Key!,
+                Count = group.Count()
+            })
+        .OrderByDescending(x => x.Count)
+        .ToListAsync();
 
             var categoryGroups =
                 await BuildFilteredQuery(
@@ -343,7 +340,7 @@ namespace GemApi.Services
                 Ministries = ministries,
                 Departments = departments,
                 Organisations = organisations,
-                Offices = offices,
+                Consignees = consignees,
                 Categories = categories,
                 Status = status
             };
@@ -556,23 +553,20 @@ namespace GemApi.Services
                     request.Search.Trim();
 
                 query = query.Where(x =>
-                    (x.BidNumber ?? "")
-                        .Contains(search)
-                    ||
-                    (x.ItemCategory ?? "")
-                        .Contains(search)
-                    ||
-                    (x.Boqtitle ?? "")
-                        .Contains(search)
-                    ||
-                    (x.DepartmentName ?? "")
-                        .Contains(search)
-                    ||
-                    (x.OrganisationName ?? "")
-                        .Contains(search)
-                    ||
-                    (x.OfficeName ?? "")
-                        .Contains(search));
+        (x.BidNumber ?? "").Contains(search)
+        ||
+        (x.ItemCategory ?? "").Contains(search)
+        ||
+        (x.Boqtitle ?? "").Contains(search)
+        ||
+       (x.DepartmentName ?? "").Contains(search)
+||
+(x.Ministry ?? "").Contains(search)
+||
+(x.OrganisationName ?? "").Contains(search)
+||
+(x.ConsigneeName ?? "").Contains(search)
+    );
             }
 
             // STATUS
@@ -690,14 +684,14 @@ namespace GemApi.Services
             }
 
             // OFFICE
-            if (exclude != "Office"
+            // CONSIGNEE
+            if (exclude != "Consignee"
                 &&
-                !string.IsNullOrWhiteSpace(
-                    request.OfficeName))
+                !string.IsNullOrWhiteSpace(request.ConsigneeName))
             {
                 query = query.Where(x =>
-                    x.OfficeName ==
-                    request.OfficeName);
+                    x.ConsigneeName ==
+                    request.ConsigneeName);
             }
 
             // CATEGORY AND SUBCATEGORY

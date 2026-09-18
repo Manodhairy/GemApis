@@ -1,4 +1,4 @@
-﻿using AutoMapper;
+using AutoMapper;
 using GemApi.DTOs.Request;
 using GemApi.DTOs.Response;
 using GemApi.Models.Entity;
@@ -802,13 +802,13 @@ namespace GemApi.Services
                BidFilterRequestDto request)
         {
             
-            IQueryable<GeMbidExtract> StatusPriorityOrder()
+            IQueryable<GeMbidExtract> StatusPriorityOrder(bool newestFirst = false)
             {
                 var now = DateTime.Now;
                 var closingSoonUpperBound =
                     now.AddDays(ClosingSoonWindowDays);
 
-                return query
+                var ordered = query
                     .OrderBy(x =>
                         // Closing Soon = 0
                         (x.CardEndDate >= now &&
@@ -825,41 +825,49 @@ namespace GemApi.Services
                             ? 2
 
                         // Other = 3
-                        : 3)
-                    .ThenBy(x => x.CardEndDate);
+                        : 3);
+
+                return newestFirst
+                    ? ordered
+                        .ThenByDescending(x => x.UpdatedOn ?? x.CreatedOn)
+                        .ThenByDescending(x => x.Id)
+                    : ordered
+                        .ThenBy(x => x.CardEndDate);
             }
 
             switch (request.SortBy?.ToLower())
             {
                 case "status":
+                    return StatusPriorityOrder(request.Descending);
 
-                    return StatusPriorityOrder();
-
+                case "recentlyupdated":
+                case "updatedon":
+                case "latest":
+                case "newest":
+                    return StatusPriorityOrder(newestFirst: true);
 
                 case "biddate":
-
                     return request.Descending
                         ? query.OrderByDescending(x => x.BidDate)
                         : query.OrderBy(x => x.BidDate);
 
+                case "createdon":
+                    return request.Descending
+                        ? query.OrderByDescending(x => x.CreatedOn)
+                        : query.OrderBy(x => x.CreatedOn);
 
                 case "estimatedvalue":
-
                     return request.Descending
                         ? query.OrderByDescending(x => x.EstimatedBidValue)
                         : query.OrderBy(x => x.EstimatedBidValue);
 
-
                 case "department":
-
                     return request.Descending
                         ? query.OrderByDescending(x => x.DepartmentName)
                         : query.OrderBy(x => x.DepartmentName);
 
-
                 // No sortBy supplied -> default to Closing Soon -> Active -> Expired.
                 default:
-
                     return StatusPriorityOrder();
             }
         }

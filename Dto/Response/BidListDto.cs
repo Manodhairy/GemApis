@@ -1,4 +1,4 @@
-﻿namespace GemApi.DTOs.Response
+namespace GemApi.DTOs.Response
 {
     public class BidListDto
     {
@@ -8,6 +8,7 @@
 
         public DateTime CreatedOn { get; set; }
 
+        public DateTime? UpdatedOn { get; set; }
 
         public bool IsClosingSoon { get; set; }
 

@@ -715,21 +715,27 @@ namespace GemApi.Services
             }
 
             // BID DATE
+            // BID DATE
+
+            // From = Bid Start Date
             if (request.CardStartDate.HasValue)
             {
+                var fromDate = request.CardStartDate.Value.Date;
+
                 query = query.Where(x =>
-                    x.CardStartDate >=
-                    request.CardStartDate);
+                    x.CardStartDate >= fromDate);
             }
 
+            // To = Bid End Date
             if (request.CardEndDate.HasValue)
             {
+                var toDate = request.CardEndDate.Value.Date.AddDays(1);
+
                 query = query.Where(x =>
-                    x.CardStartDate <=
-                    request.CardEndDate);
+                    x.CardEndDate < toDate);
             }
 
-         
+
 
             // ESTIMATED VALUE
             if (request.MinEstimatedValue.HasValue)

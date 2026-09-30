@@ -68,9 +68,9 @@ builder.Services.Configure<EmailSettings>(
 
 
 
-//builder.Services.AddHostedService<
-//    BidEmailBackgroundService
-//>();
+builder.Services.AddHostedService<
+    BidEmailBackgroundService
+>();
 #endregion
 
 #region JWt

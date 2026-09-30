@@ -4,6 +4,10 @@ public class PuneBidAlertDto
 {
     public string BidNumber { get; set; } = string.Empty;
 
+    public string? PdfUrl { get; set; }
+
+    public string Location { get; set; } = string.Empty;
+
     public string? CardStartDate { get; set; }
 
     public string? CardEndDate { get; set; }

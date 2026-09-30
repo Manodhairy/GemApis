@@ -67,26 +67,40 @@ public class PuneBidAlertService : IPuneBidAlertService
             "Found {Count} new or updated bids.",
             changedBids.Count);
 
-        // Search "Pune" across every public property.
-        var puneBids = changedBids
-            .Where(ContainsPune)
+        // Find bids containing Pune or Wellington.
+        var matchingBids = changedBids
+            .Select(bid => new
+            {
+                Bid = bid,
+                Location = GetMatchingLocation(bid)
+            })
+            .Where(x => x.Location != null)
+            .ToList();
+
+        var puneBids = matchingBids
+            .Where(x => x.Location == "Pune")
+            .Select(x => x.Bid)
+            .ToList();
+
+        var wellingtonBids = matchingBids
+            .Where(x => x.Location == "Wellington")
+            .Select(x => x.Bid)
             .ToList();
 
         _logger.LogInformation(
-            "Found {Count} new or updated Pune-related bids.",
-            puneBids.Count);
+            "Found {PuneCount} Pune-related bid(s) and {WellingtonCount} Wellington-related bid(s).",
+            puneBids.Count,
+            wellingtonBids.Count);
 
-        if (puneBids.Count == 0)
+        if (matchingBids.Count == 0)
         {
-            // Nothing needs to be emailed, so the checkpoint
-            // can safely move forward.
             state.LastCheckedAt = checkStartedAt;
 
             await _dbContext.SaveChangesAsync(
                 cancellationToken);
 
             _logger.LogInformation(
-                "No Pune bids found. LastCheckedAt updated to {CheckStartedAt}.",
+                "No Pune/Wellington bids found. LastCheckedAt updated to {CheckStartedAt}.",
                 checkStartedAt);
 
             return;
@@ -94,12 +108,13 @@ public class PuneBidAlertService : IPuneBidAlertService
 
         // Determine the timestamp representing this particular
         // bid version/change.
-        var candidates = puneBids
-            .Select(bid => new
+        var candidates = matchingBids
+            .Select(x => new
             {
-                Bid = bid,
+                Bid = x.Bid,
+                Location = x.Location!,
                 ChangeDetectedOn =
-                    bid.UpdatedOn ?? bid.CreatedOn
+                    x.Bid.UpdatedOn ?? x.Bid.CreatedOn
             })
             .ToList();
 
@@ -123,32 +138,37 @@ public class PuneBidAlertService : IPuneBidAlertService
             .ToList();
 
         _logger.LogInformation(
-            "{Count} Pune bid change(s) require email notification.",
+            "{Count} Pune/Wellington bid change(s) require email notification.",
             unsentCandidates.Count);
 
         if (unsentCandidates.Count == 0)
         {
-            // Everything found in this interval has already been
-            // successfully notified.
             state.LastCheckedAt = checkStartedAt;
 
             await _dbContext.SaveChangesAsync(
                 cancellationToken);
 
             _logger.LogInformation(
-                "All Pune bid changes were already notified. " +
+                "All Pune/Wellington bid changes were already notified. " +
                 "LastCheckedAt updated to {CheckStartedAt}.",
                 checkStartedAt);
 
             return;
         }
 
-        // Convert database entities into the small DTO containing
-        // only the fields we want in the email.
+        // Convert database entities into the DTO containing
+        // only the fields required by the email.
         var emailBids = unsentCandidates
             .Select(x => new PuneBidAlertDto
             {
-                BidNumber = x.Bid.BidNumber ?? string.Empty,
+                BidNumber =
+                    x.Bid.BidNumber ?? string.Empty,
+
+                PdfUrl =
+                    x.Bid.PdfUrl,
+
+                Location =
+                    x.Location,
 
                 CardStartDate =
                     x.Bid.CardStartDate?.ToString(),
@@ -157,16 +177,7 @@ public class PuneBidAlertService : IPuneBidAlertService
                     x.Bid.CardEndDate?.ToString(),
 
                 CategoryKey =
-                    x.Bid.CategoryKey,
-
-                OfficeName =
-                    x.Bid.OfficeName,
-
-                OrganisationName =
-                    x.Bid.OrganisationName,
-
-                ConsigneeName =
-                    x.Bid.ConsigneeName
+                    x.Bid.CategoryKey
             })
             .ToList();
 
@@ -186,7 +197,8 @@ public class PuneBidAlertService : IPuneBidAlertService
             _dbContext.PuneBidAlertSents.Add(
                 new PuneBidAlertSent
                 {
-                    BidId = candidate.Bid.Id,
+                    BidId =
+                        candidate.Bid.Id,
 
                     BidNumber =
                         candidate.Bid.BidNumber ?? string.Empty,
@@ -197,7 +209,8 @@ public class PuneBidAlertService : IPuneBidAlertService
                     ChangeDetectedOn =
                         candidate.ChangeDetectedOn,
 
-                    SentOn = sentOn
+                    SentOn =
+                        sentOn
                 });
         }
 
@@ -209,19 +222,22 @@ public class PuneBidAlertService : IPuneBidAlertService
             cancellationToken);
 
         _logger.LogInformation(
-            "Pune bid alert processing completed. " +
+            "Pune/Wellington bid alert processing completed. " +
             "Sent: {SentCount}. LastCheckedAt: {LastCheckedAt}.",
             unsentCandidates.Count,
             checkStartedAt);
     }
 
-    private static bool ContainsPune(
+    private static string? GetMatchingLocation(
         GeMbidExtract bid)
     {
         var properties = typeof(GeMbidExtract)
             .GetProperties(
                 BindingFlags.Public |
                 BindingFlags.Instance);
+
+        var containsPune = false;
+        var containsWellington = false;
 
         foreach (var property in properties)
         {
@@ -230,15 +246,41 @@ public class PuneBidAlertService : IPuneBidAlertService
             if (value == null)
                 continue;
 
-            if (value.ToString()!
-                .Contains(
+            var text = value.ToString();
+
+            if (string.IsNullOrEmpty(text))
+                continue;
+
+            if (text.Contains(
                     "Pune",
                     StringComparison.OrdinalIgnoreCase))
             {
-                return true;
+                containsPune = true;
+            }
+
+            if (text.Contains(
+                    "Wellington",
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                containsWellington = true;
+            }
+
+            if (containsPune && containsWellington)
+            {
+                break;
             }
         }
 
-        return false;
+        if (containsPune)
+        {
+            return "Pune";
+        }
+
+        if (containsWellington)
+        {
+            return "Wellington";
+        }
+
+        return null;
     }
 }

@@ -19,4 +19,6 @@ public class PuneBidAlertDto
     public string? OrganisationName { get; set; }
 
     public string? ConsigneeName { get; set; }
+
+    public string? ItemCategory { get; set; }
 }

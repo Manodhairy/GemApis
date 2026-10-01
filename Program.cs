@@ -11,11 +11,41 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 
+using Serilog;
+
 using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
 
+#region Serilog
+
+var logDirectory = Path.Combine(
+    AppContext.BaseDirectory,
+    "Logs"
+);
+
+Directory.CreateDirectory(logDirectory);
+
+builder.Host.UseSerilog((context, config) =>
+{
+    config
+        .MinimumLevel.Information()
+        .MinimumLevel.Override(
+            "Microsoft.EntityFrameworkCore",
+            Serilog.Events.LogEventLevel.Warning
+        )
+        .WriteTo.Console()
+        .WriteTo.File(
+            Path.Combine(logDirectory, "log-.txt"),
+            rollingInterval: RollingInterval.Day
+        );
+});
+
+#endregion
+
+
 #region AddDbContext
+
 var connectionString =
     builder.Configuration.GetConnectionString(
         "DefaultConnection"
@@ -27,9 +57,12 @@ builder.Services.AddDbContext<ApplicationDbContext>(
         options.UseSqlServer(connectionString);
     }
 );
+
 #endregion
 
+
 #region AutoMapper
+
 builder.Services.AddAutoMapper(
     cfg => { },
     AppDomain.CurrentDomain.GetAssemblies()
@@ -37,11 +70,14 @@ builder.Services.AddAutoMapper(
 
 #endregion
 
+
 #region DI
+
 builder.Services.AddScoped<
     IGeMBidRepository,
     GeMBidRepository
 >();
+
 builder.Services.AddScoped<
     IGeMBidService,
     GeMBidService
@@ -51,30 +87,47 @@ builder.Services.AddScoped<
     IEmailService,
     EmailService
 >();
-builder.Services.AddScoped<IPuneBidAlertService, PuneBidAlertService>();
+
+builder.Services.AddScoped<
+    IPuneBidAlertService,
+    PuneBidAlertService
+>();
+
 builder.Services.Configure<PuneBidAlertSettings>(
-    builder.Configuration.GetSection("PuneBidAlert"));
-builder.Services.AddHostedService<PuneBidAlertBackgroundService>();
-builder.Services.AddScoped<IPuneBidEmailService, PuneBidEmailService>();
+    builder.Configuration.GetSection("PuneBidAlert")
+);
+
+builder.Services.AddHostedService<
+    PuneBidAlertBackgroundService
+>();
+
+builder.Services.AddScoped<
+    IPuneBidEmailService,
+    PuneBidEmailService
+>();
 
 #endregion
 
-#region Email Confugure
+
+#region Email Configure
+
 builder.Services.Configure<EmailSettings>(
     builder.Configuration.GetSection(
         "EmailSettings"
     )
 );
 
-
-
 builder.Services.AddHostedService<
     BidEmailBackgroundService
 >();
+
 #endregion
 
-#region JWt
+
+#region JWT
+
 builder.Services.AddScoped<JwtService>();
+
 var jwtKey =
     builder.Configuration["Jwt:Key"];
 
@@ -92,6 +145,7 @@ if (string.IsNullOrWhiteSpace(jwtKey))
     );
 }
 
+
 builder.Services.AddAuthentication(
     options =>
     {
@@ -104,40 +158,74 @@ builder.Services.AddAuthentication(
 )
 .AddJwtBearer(options =>
 {
-    options.TokenValidationParameters = new TokenValidationParameters
-    {
-        ValidateIssuer = true,
-        ValidateAudience = true,
-        ValidateLifetime = true,
-        ValidateIssuerSigningKey = true,
-        ValidIssuer = jwtIssuer,
-        ValidAudience = jwtAudience,
-        IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey)),
-        ClockSkew = TimeSpan.Zero
-    };
+    options.TokenValidationParameters =
+        new TokenValidationParameters
+        {
+            ValidateIssuer = true,
+            ValidateAudience = true,
+            ValidateLifetime = true,
+            ValidateIssuerSigningKey = true,
+
+            ValidIssuer = jwtIssuer,
+            ValidAudience = jwtAudience,
+
+            IssuerSigningKey =
+                new SymmetricSecurityKey(
+                    Encoding.UTF8.GetBytes(jwtKey)
+                ),
+
+            ClockSkew = TimeSpan.Zero
+        };
+
 
     // Ensure token matches the DB record
     options.Events = new JwtBearerEvents
     {
         OnTokenValidated = async context =>
         {
-            var dbContext = context.HttpContext.RequestServices.GetRequiredService<ApplicationDbContext>();
-            var userIdStr = context.Principal?.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
-            var incomingToken = context.Request.Headers["Authorization"].ToString().Replace("Bearer ", "").Trim();
+            var dbContext =
+                context.HttpContext.RequestServices
+                    .GetRequiredService<ApplicationDbContext>();
+
+            var userIdStr =
+                context.Principal?
+                    .FindFirst(
+                        System.Security.Claims.ClaimTypes.NameIdentifier
+                    )?
+                    .Value;
+
+            var incomingToken =
+                context.Request.Headers["Authorization"]
+                    .ToString()
+                    .Replace("Bearer ", "")
+                    .Trim();
+
 
             // FIX: Change int to long
-            if (long.TryParse(userIdStr, out long userId))
+            if (long.TryParse(
+                userIdStr,
+                out long userId))
             {
-                var admin = await dbContext.Admins.FindAsync(userId);
+                var admin =
+                    await dbContext.Admins.FindAsync(userId);
 
-                if (admin == null || string.IsNullOrEmpty(admin.Token) || admin.Token != incomingToken)
+
+                if (
+                    admin == null ||
+                    string.IsNullOrEmpty(admin.Token) ||
+                    admin.Token != incomingToken
+                )
                 {
-                    context.Fail("Token has been revoked or expired.");
+                    context.Fail(
+                        "Token has been revoked or expired."
+                    );
                 }
             }
             else
             {
-                context.Fail("Invalid user claim.");
+                context.Fail(
+                    "Invalid user claim."
+                );
             }
         }
     };
@@ -154,6 +242,7 @@ builder.Services.AddControllers();
 
 builder.Services.AddEndpointsApiExplorer();
 
+
 builder.Services.AddSwaggerGen(
     options =>
     {
@@ -166,7 +255,6 @@ builder.Services.AddSwaggerGen(
             }
         );
 
-        
 
         options.AddSecurityDefinition(
             "Bearer",
@@ -186,6 +274,7 @@ builder.Services.AddSwaggerGen(
                     "Enter your JWT token."
             }
         );
+
 
         options.AddSecurityRequirement(
             new OpenApiSecurityRequirement
@@ -210,7 +299,9 @@ builder.Services.AddSwaggerGen(
     }
 );
 
+
 #region CorsOrigin
+
 builder.Services.AddCors(
     options =>
     {
@@ -220,11 +311,9 @@ builder.Services.AddCors(
             {
                 policy
                     .WithOrigins(
-               "https://gemsbid.sdaemon.com" ,
-               "http://localhost:5173"
-
-
-               )
+                        "https://gemsbid.sdaemon.com",
+                        "http://localhost:5173"
+                    )
                     .AllowAnyHeader()
                     .AllowAnyMethod();
             }
@@ -236,7 +325,6 @@ builder.Services.AddCors(
 
 
 var app = builder.Build();
-
 
 
 if (app.Environment.IsDevelopment())

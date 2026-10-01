@@ -67,8 +67,14 @@ public class PuneBidAlertService : IPuneBidAlertService
             "Found {Count} new or updated bids.",
             changedBids.Count);
 
-        // Find bids containing Pune or Wellington.
+        // Find bids containing Pune or Wellington
+        // AND having CategoryKey = IT.
         var matchingBids = changedBids
+            .Where(bid =>
+                string.Equals(
+                    bid.CategoryKey,
+                    "IT",
+                    StringComparison.OrdinalIgnoreCase))
             .Select(bid => new
             {
                 Bid = bid,
@@ -88,7 +94,7 @@ public class PuneBidAlertService : IPuneBidAlertService
             .ToList();
 
         _logger.LogInformation(
-            "Found {PuneCount} Pune-related bid(s) and {WellingtonCount} Wellington-related bid(s).",
+            "Found {PuneCount} IT Pune-related bid(s) and {WellingtonCount} IT Wellington-related bid(s).",
             puneBids.Count,
             wellingtonBids.Count);
 
@@ -100,7 +106,7 @@ public class PuneBidAlertService : IPuneBidAlertService
                 cancellationToken);
 
             _logger.LogInformation(
-                "No Pune/Wellington bids found. LastCheckedAt updated to {CheckStartedAt}.",
+                "No IT Pune/Wellington bids found. LastCheckedAt updated to {CheckStartedAt}.",
                 checkStartedAt);
 
             return;
@@ -138,7 +144,7 @@ public class PuneBidAlertService : IPuneBidAlertService
             .ToList();
 
         _logger.LogInformation(
-            "{Count} Pune/Wellington bid change(s) require email notification.",
+            "{Count} IT Pune/Wellington bid change(s) require email notification.",
             unsentCandidates.Count);
 
         if (unsentCandidates.Count == 0)
@@ -149,7 +155,7 @@ public class PuneBidAlertService : IPuneBidAlertService
                 cancellationToken);
 
             _logger.LogInformation(
-                "All Pune/Wellington bid changes were already notified. " +
+                "All IT Pune/Wellington bid changes were already notified. " +
                 "LastCheckedAt updated to {CheckStartedAt}.",
                 checkStartedAt);
 
@@ -177,7 +183,10 @@ public class PuneBidAlertService : IPuneBidAlertService
                     x.Bid.CardEndDate?.ToString(),
 
                 CategoryKey =
-                    x.Bid.CategoryKey
+                    x.Bid.CategoryKey,
+
+                ItemCategory =
+                     x.Bid.ItemCategory
             })
             .ToList();
 
@@ -222,7 +231,7 @@ public class PuneBidAlertService : IPuneBidAlertService
             cancellationToken);
 
         _logger.LogInformation(
-            "Pune/Wellington bid alert processing completed. " +
+            "IT Pune/Wellington bid alert processing completed. " +
             "Sent: {SentCount}. LastCheckedAt: {LastCheckedAt}.",
             unsentCandidates.Count,
             checkStartedAt);

@@ -293,6 +293,10 @@ public class PuneBidEmailService : IPuneBidEmailService
                     word-break: break-word;
                 }
 
+                .item-category {
+                    word-break: break-word;
+                }
+
                 .date {
                     white-space: nowrap;
                     font-size: 10px;
@@ -347,12 +351,12 @@ public class PuneBidEmailService : IPuneBidEmailService
                     }
 
                     .bid-table {
-                        font-size: 9px !important;
+                        font-size: 8px !important;
                     }
 
                     .bid-table th {
                         padding: 6px 3px !important;
-                        font-size: 8px !important;
+                        font-size: 7px !important;
                     }
 
                     .bid-table td {
@@ -360,7 +364,7 @@ public class PuneBidEmailService : IPuneBidEmailService
                     }
 
                     .date {
-                        font-size: 8px !important;
+                        font-size: 7px !important;
                     }
 
                     .footer {
@@ -456,15 +460,17 @@ public class PuneBidEmailService : IPuneBidEmailService
                     <table class="bid-table">
 
                         <colgroup>
-                            <col style="width: 38%;">
-                            <col style="width: 22%;">
-                            <col style="width: 20%;">
-                            <col style="width: 20%;">
+                            <col style="width: 32%;">
+                            <col style="width: 28%;">
+                            <col style="width: 12%;">
+                            <col style="width: 14%;">
+                            <col style="width: 14%;">
                         </colgroup>
 
                         <thead>
                             <tr>
                                 <th>Bid Number</th>
+                                <th>Item Category</th>
                                 <th>Category</th>
                                 <th>Start Date</th>
                                 <th>End Date</th>
@@ -508,6 +514,12 @@ public class PuneBidEmailService : IPuneBidEmailService
                     $"{Encode(bid.BidNumber)}" +
                     $"</td>");
             }
+
+            // Item Category
+            html.Append(
+                $"<td class=\"item-category\">" +
+                $"{Encode(bid.ItemCategory)}" +
+                $"</td>");
 
             // Category
             html.Append(
@@ -603,6 +615,9 @@ public class PuneBidEmailService : IPuneBidEmailService
         {
             text.AppendLine(
                 $"Bid Number: {bid.BidNumber}");
+
+            text.AppendLine(
+                $"Item Category: {bid.ItemCategory}");
 
             text.AppendLine(
                 $"Category: {bid.CategoryKey}");

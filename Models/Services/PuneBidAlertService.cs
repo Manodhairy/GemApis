@@ -67,7 +67,7 @@ public class PuneBidAlertService : IPuneBidAlertService
             "Found {Count} new or updated bids.",
             changedBids.Count);
 
-        // Find bids containing Pune or Wellington
+        // Find bids containing Pune or Nilgiris
         // AND having CategoryKey = IT.
         var matchingBids = changedBids
             .Where(bid =>
@@ -88,15 +88,15 @@ public class PuneBidAlertService : IPuneBidAlertService
             .Select(x => x.Bid)
             .ToList();
 
-        var wellingtonBids = matchingBids
-            .Where(x => x.Location == "Wellington")
+        var nilgirisBids = matchingBids
+            .Where(x => x.Location == "Nilgiris")
             .Select(x => x.Bid)
             .ToList();
 
         _logger.LogInformation(
-            "Found {PuneCount} IT Pune-related bid(s) and {WellingtonCount} IT Wellington-related bid(s).",
+            "Found {PuneCount} IT Pune-related bid(s) and {NilgirisCount} IT Nilgiris-related bid(s).",
             puneBids.Count,
-            wellingtonBids.Count);
+            nilgirisBids.Count);
 
         if (matchingBids.Count == 0)
         {
@@ -106,7 +106,7 @@ public class PuneBidAlertService : IPuneBidAlertService
                 cancellationToken);
 
             _logger.LogInformation(
-                "No IT Pune/Wellington bids found. LastCheckedAt updated to {CheckStartedAt}.",
+                "No IT Pune/Nilgiris bids found. LastCheckedAt updated to {CheckStartedAt}.",
                 checkStartedAt);
 
             return;
@@ -144,7 +144,7 @@ public class PuneBidAlertService : IPuneBidAlertService
             .ToList();
 
         _logger.LogInformation(
-            "{Count} IT Pune/Wellington bid change(s) require email notification.",
+            "{Count} IT Pune/Nilgiris bid change(s) require email notification.",
             unsentCandidates.Count);
 
         if (unsentCandidates.Count == 0)
@@ -155,7 +155,7 @@ public class PuneBidAlertService : IPuneBidAlertService
                 cancellationToken);
 
             _logger.LogInformation(
-                "All IT Pune/Wellington bid changes were already notified. " +
+                "All IT Pune/Nilgiris bid changes were already notified. " +
                 "LastCheckedAt updated to {CheckStartedAt}.",
                 checkStartedAt);
 
@@ -186,7 +186,7 @@ public class PuneBidAlertService : IPuneBidAlertService
                     x.Bid.CategoryKey,
 
                 ItemCategory =
-                     x.Bid.ItemCategory
+                    x.Bid.ItemCategory
             })
             .ToList();
 
@@ -231,7 +231,7 @@ public class PuneBidAlertService : IPuneBidAlertService
             cancellationToken);
 
         _logger.LogInformation(
-            "IT Pune/Wellington bid alert processing completed. " +
+            "IT Pune/Nilgiris bid alert processing completed. " +
             "Sent: {SentCount}. LastCheckedAt: {LastCheckedAt}.",
             unsentCandidates.Count,
             checkStartedAt);
@@ -246,7 +246,7 @@ public class PuneBidAlertService : IPuneBidAlertService
                 BindingFlags.Instance);
 
         var containsPune = false;
-        var containsWellington = false;
+        var containsNilgiris = false;
 
         foreach (var property in properties)
         {
@@ -268,13 +268,13 @@ public class PuneBidAlertService : IPuneBidAlertService
             }
 
             if (text.Contains(
-                    "Wellington",
+                    "Nilgiris",
                     StringComparison.OrdinalIgnoreCase))
             {
-                containsWellington = true;
+                containsNilgiris = true;
             }
 
-            if (containsPune && containsWellington)
+            if (containsPune && containsNilgiris)
             {
                 break;
             }
@@ -285,9 +285,9 @@ public class PuneBidAlertService : IPuneBidAlertService
             return "Pune";
         }
 
-        if (containsWellington)
+        if (containsNilgiris)
         {
-            return "Wellington";
+            return "Nilgiris";
         }
 
         return null;

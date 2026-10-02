@@ -1,4 +1,4 @@
-﻿namespace GemApi.DTOs.Response
+namespace GemApi.DTOs.Response
 {
     public class BidDetailDto
     {
@@ -7,6 +7,7 @@
         public string? DepartmentName { get; set; }
         public string? OrganisationName { get; set; }
         public string? OfficeName { get; set; }
+        public string? Location { get; set; }
         public string? ItemCategory { get; set; }
         public decimal? EstimatedBidValue { get; set; }
         public decimal? EmdAmount { get; set; }

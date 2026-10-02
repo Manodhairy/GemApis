@@ -1,4 +1,4 @@
-﻿namespace GemApi.DTOs.Request
+namespace GemApi.DTOs.Request
 {
     public class BidFilterRequestDto
     {
@@ -10,6 +10,7 @@
         public string? DepartmentName { get; set; }
         public string? OrganisationName { get; set; }
         public string? ConsigneeName { get; set; }
+        public string? Location { get; set; }
 
         // Category Filters
         public string? CategoryKey { get; set; }

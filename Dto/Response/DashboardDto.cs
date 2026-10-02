@@ -1,4 +1,4 @@
-﻿namespace GemApi.DTOs.Response
+namespace GemApi.DTOs.Response
 {
     public class DashboardDto
     {
@@ -9,6 +9,7 @@
         public int TotalMinistries { get; set; }
         public int TotalDepartments { get; set; }
         public int TotalOrganisations { get; set; }
+        public int TotalLocations { get; set; }
 
         // Time-bucketed counts (bids started per year/month/week)
         public List<PeriodCountDto> YearlyBids { get; set; } = new();

@@ -57,7 +57,7 @@ namespace GemApi.Services
                     BidNumber = x.BidNumber,
                     Department = x.DepartmentName,
                     Organisation = x.OrganisationName,
-                    Location = x.ConsigneeName,
+                    Location = x.Location,
                     Category = x.CategoryKey,
                     SubCategory = x.CategorySubKey,
                     BidStartDate = x.CardStartDate,
@@ -249,6 +249,21 @@ namespace GemApi.Services
         .OrderByDescending(x => x.Count)
         .ToListAsync();
 
+            var locations =
+                await BuildFilteredQuery(
+                        request,
+                        exclude: "Location")
+                    .Where(x => !string.IsNullOrWhiteSpace(x.Location))
+                    .GroupBy(x => x.Location)
+                    .Select(group =>
+                        new FilterItemDto
+                        {
+                            Name = group.Key!,
+                            Count = group.Count()
+                        })
+                    .OrderByDescending(x => x.Count)
+                    .ToListAsync();
+
             var categoryGroups =
                 await BuildFilteredQuery(
                         request,
@@ -340,6 +355,7 @@ namespace GemApi.Services
                 Ministries = ministries,
                 Departments = departments,
                 Organisations = organisations,
+                Locations = locations,
                 Consignees = consignees,
                 Categories = categories,
                 Status = status
@@ -406,6 +422,14 @@ namespace GemApi.Services
                             != null)
                         .Select(x =>
                             x.OrganisationName)
+                        .Distinct()
+                        .CountAsync(),
+                TotalLocations =
+                    await query
+                        .Where(x =>
+                            !string.IsNullOrWhiteSpace(x.Location))
+                        .Select(x =>
+                            x.Location)
                         .Distinct()
                         .CountAsync(),
 
@@ -566,6 +590,8 @@ namespace GemApi.Services
 (x.OrganisationName ?? "").Contains(search)
 ||
 (x.ConsigneeName ?? "").Contains(search)
+||
+(x.Location ?? "").Contains(search)
     );
             }
 
@@ -692,6 +718,16 @@ namespace GemApi.Services
                 query = query.Where(x =>
                     x.ConsigneeName ==
                     request.ConsigneeName);
+            }
+
+            // LOCATION
+            if (exclude != "Location"
+                &&
+                !string.IsNullOrWhiteSpace(request.Location))
+            {
+                query = query.Where(x =>
+                    x.Location ==
+                    request.Location);
             }
 
             // CATEGORY AND SUBCATEGORY

@@ -10,7 +10,7 @@ namespace GemApi.DTOs.Request
         public string? DepartmentName { get; set; }
         public string? OrganisationName { get; set; }
         public string? ConsigneeName { get; set; }
-        public string? Location { get; set; }
+        public List<string> Locations { get; set; } = new();
 
         // Category Filters
         public string? CategoryKey { get; set; }

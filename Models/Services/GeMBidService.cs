@@ -721,13 +721,14 @@ namespace GemApi.Services
             }
 
             // LOCATION
+            // LOCATION - MULTIPLE LOCATIONS
             if (exclude != "Location"
-                &&
-                !string.IsNullOrWhiteSpace(request.Location))
+                && request.Locations != null
+                && request.Locations.Count > 0)
             {
                 query = query.Where(x =>
-                    x.Location ==
-                    request.Location);
+                    x.Location != null &&
+                    request.Locations.Contains(x.Location));
             }
 
             // CATEGORY AND SUBCATEGORY

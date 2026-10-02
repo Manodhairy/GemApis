@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
@@ -47,6 +47,9 @@ public partial class GeMbidExtract
     public string? OrganisationName { get; set; }
 
     public string? OfficeName { get; set; }
+
+    [Column("location")]
+    public string? Location { get; set; }
 
     public string? ContactDetailsOfGrievanceRedressal { get; set; }
 

@@ -27,6 +27,8 @@ namespace GemApi.DTOs.Response
         public string? OrganisationName { get; set; }
 
         public string? OfficeName { get; set; }
+        
+        public string? Location { get; set; }
 
         public string? ContactDetailsOfGrievanceRedressal { get; set; }
 

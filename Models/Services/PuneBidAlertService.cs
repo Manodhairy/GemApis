@@ -5,7 +5,6 @@ using GemApi.Services.Interfaces;
 using GemApi.Settings;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
-using System.Reflection;
 
 namespace GemApi.Services;
 
@@ -43,7 +42,7 @@ public class PuneBidAlertService : IPuneBidAlertService
         var checkStartedAt = DateTime.Now;
 
         _logger.LogInformation(
-            "Pune bid alert check started. LastCheckedAt: {LastCheckedAt}",
+            "Location bid alert check started. LastCheckedAt: {LastCheckedAt}",
             lastCheckedAt);
 
         // Get only records that changed between the previous
@@ -67,8 +66,12 @@ public class PuneBidAlertService : IPuneBidAlertService
             "Found {Count} new or updated bids.",
             changedBids.Count);
 
-        // Find bids containing Pune or Nilgiris
-        // AND having CategoryKey = IT.
+        // Find bids where:
+        // 1. CategoryKey is IT
+        // 2. Location is Pune, Nilgiris, or Leh
+        //
+        // IMPORTANT:
+        // Location is checked ONLY from the Location column.
         var matchingBids = changedBids
             .Where(bid =>
                 string.Equals(
@@ -93,10 +96,16 @@ public class PuneBidAlertService : IPuneBidAlertService
             .Select(x => x.Bid)
             .ToList();
 
+        var lehBids = matchingBids
+            .Where(x => x.Location == "Leh")
+            .Select(x => x.Bid)
+            .ToList();
+
         _logger.LogInformation(
-            "Found {PuneCount} IT Pune-related bid(s) and {NilgirisCount} IT Nilgiris-related bid(s).",
+            "Found {PuneCount} IT Pune bid(s), {NilgirisCount} IT Nilgiris bid(s), and {LehCount} IT Leh bid(s).",
             puneBids.Count,
-            nilgirisBids.Count);
+            nilgirisBids.Count,
+            lehBids.Count);
 
         if (matchingBids.Count == 0)
         {
@@ -106,7 +115,7 @@ public class PuneBidAlertService : IPuneBidAlertService
                 cancellationToken);
 
             _logger.LogInformation(
-                "No IT Pune/Nilgiris bids found. LastCheckedAt updated to {CheckStartedAt}.",
+                "No IT Pune/Nilgiris/Leh bids found. LastCheckedAt updated to {CheckStartedAt}.",
                 checkStartedAt);
 
             return;
@@ -144,7 +153,7 @@ public class PuneBidAlertService : IPuneBidAlertService
             .ToList();
 
         _logger.LogInformation(
-            "{Count} IT Pune/Nilgiris bid change(s) require email notification.",
+            "{Count} IT Pune/Nilgiris/Leh bid change(s) require email notification.",
             unsentCandidates.Count);
 
         if (unsentCandidates.Count == 0)
@@ -155,7 +164,7 @@ public class PuneBidAlertService : IPuneBidAlertService
                 cancellationToken);
 
             _logger.LogInformation(
-                "All IT Pune/Nilgiris bid changes were already notified. " +
+                "All IT Pune/Nilgiris/Leh bid changes were already notified. " +
                 "LastCheckedAt updated to {CheckStartedAt}.",
                 checkStartedAt);
 
@@ -231,7 +240,7 @@ public class PuneBidAlertService : IPuneBidAlertService
             cancellationToken);
 
         _logger.LogInformation(
-            "IT Pune/Nilgiris bid alert processing completed. " +
+            "IT Pune/Nilgiris/Leh bid alert processing completed. " +
             "Sent: {SentCount}. LastCheckedAt: {LastCheckedAt}.",
             unsentCandidates.Count,
             checkStartedAt);
@@ -240,54 +249,32 @@ public class PuneBidAlertService : IPuneBidAlertService
     private static string? GetMatchingLocation(
         GeMbidExtract bid)
     {
-        var properties = typeof(GeMbidExtract)
-            .GetProperties(
-                BindingFlags.Public |
-                BindingFlags.Instance);
-
-        var containsPune = false;
-        var containsNilgiris = false;
-
-        foreach (var property in properties)
+        // Only the Location column is checked.
+        if (string.IsNullOrWhiteSpace(bid.Location))
         {
-            var value = property.GetValue(bid);
-
-            if (value == null)
-                continue;
-
-            var text = value.ToString();
-
-            if (string.IsNullOrEmpty(text))
-                continue;
-
-            if (text.Contains(
-                    "Pune",
-                    StringComparison.OrdinalIgnoreCase))
-            {
-                containsPune = true;
-            }
-
-            if (text.Contains(
-                    "Nilgiris",
-                    StringComparison.OrdinalIgnoreCase))
-            {
-                containsNilgiris = true;
-            }
-
-            if (containsPune && containsNilgiris)
-            {
-                break;
-            }
+            return null;
         }
 
-        if (containsPune)
+        // Case-insensitive exact match.
+        if (bid.Location.Equals(
+                "Pune",
+                StringComparison.OrdinalIgnoreCase))
         {
             return "Pune";
         }
 
-        if (containsNilgiris)
+        if (bid.Location.Equals(
+                "Nilgiris",
+                StringComparison.OrdinalIgnoreCase))
         {
             return "Nilgiris";
+        }
+
+        if (bid.Location.Equals(
+                "Leh",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return "Leh";
         }
 
         return null;

@@ -50,17 +50,7 @@ public class PuneBidEmailService : IPuneBidEmailService
         }
 
         message.Subject =
-            $"Pune and Wellington Bids - {bids.Count} Bid(s)";
-
-        /*
-         * Create both versions of the email:
-         *
-         * 1. text/plain -> for clients that do not support HTML
-         * 2. text/html  -> for clients that support HTML
-         *
-         * Do not use message.Body = html here.
-         * The HTML content is added explicitly as an AlternateView.
-         */
+            $"Pune, Nilgiris and Leh Bids - {bids.Count} Bid(s)";
 
         var plainView = AlternateView.CreateAlternateViewFromString(
             plainText,
@@ -87,7 +77,7 @@ public class PuneBidEmailService : IPuneBidEmailService
         };
 
         _logger.LogInformation(
-            "Sending Pune/Wellington bid alert email for {Count} bid(s) to {RecipientCount} recipient(s) using Microsoft 365 SMTP.",
+            "Sending Pune/Nilgiris/Leh bid alert email for {Count} bid(s) to {RecipientCount} recipient(s) using Microsoft 365 SMTP.",
             bids.Count,
             recipients.Count);
 
@@ -96,7 +86,7 @@ public class PuneBidEmailService : IPuneBidEmailService
             cancellationToken);
 
         _logger.LogInformation(
-            "Pune/Wellington bid alert email sent successfully for {Count} bid(s).",
+            "Pune/Nilgiris/Leh bid alert email sent successfully for {Count} bid(s).",
             bids.Count);
     }
 
@@ -127,7 +117,7 @@ public class PuneBidEmailService : IPuneBidEmailService
         {
             throw new InvalidOperationException(
                 "SMTP password is missing. " +
-                "Check PuneBidAlert:SmtpPassword in User Secrets.");
+                "Check PuneBidAlert:SmtpPassword in appsettings.json.");
         }
 
         if (_settings.SmtpPort <= 0)
@@ -166,11 +156,19 @@ public class PuneBidEmailService : IPuneBidEmailService
                     StringComparison.OrdinalIgnoreCase))
             .ToList();
 
-        var wellingtonBids = bids
+        var nilgirisBids = bids
             .Where(x =>
                 string.Equals(
                     x.Location,
-                    "Wellington",
+                    "Nilgiris",
+                    StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+        var lehBids = bids
+            .Where(x =>
+                string.Equals(
+                    x.Location,
+                    "Leh",
                     StringComparison.OrdinalIgnoreCase))
             .ToList();
 
@@ -185,7 +183,7 @@ public class PuneBidEmailService : IPuneBidEmailService
             <meta name="viewport"
                   content="width=device-width, initial-scale=1.0">
 
-            <title>Pune and Wellington Bids</title>
+            <title>Pune, Nilgiris and Leh Bids</title>
 
             <style>
 
@@ -258,6 +256,7 @@ public class PuneBidEmailService : IPuneBidEmailService
                     font-size: 10px;
                     font-weight: bold;
                     border-right: 1px solid #ffffff;
+                    word-break: normal;
                 }
 
                 .bid-table th:last-child {
@@ -269,6 +268,8 @@ public class PuneBidEmailService : IPuneBidEmailService
                     border-bottom: 1px solid #e5e7eb;
                     vertical-align: middle;
                     word-break: break-word;
+                    overflow-wrap: anywhere;
+                    white-space: normal;
                 }
 
                 .bid-table tbody tr:nth-child(even) {
@@ -277,29 +278,32 @@ public class PuneBidEmailService : IPuneBidEmailService
 
                 .bid-number {
                     font-weight: bold;
+                    word-break: break-all;
+                    overflow-wrap: anywhere;
                 }
 
                 .bid-number a {
                     color: #1d4ed8;
                     text-decoration: none;
                     font-weight: bold;
+                    word-break: break-all;
+                    overflow-wrap: anywhere;
                 }
 
                 .bid-number a:hover {
                     text-decoration: underline;
                 }
 
-                .category {
-                    word-break: break-word;
-                }
-
                 .item-category {
                     word-break: break-word;
+                    overflow-wrap: anywhere;
                 }
 
                 .date {
-                    white-space: nowrap;
+                    white-space: normal;
                     font-size: 10px;
+                    word-break: normal;
+                    overflow-wrap: break-word;
                 }
 
                 .empty-message {
@@ -318,6 +322,13 @@ public class PuneBidEmailService : IPuneBidEmailService
                     font-size: 10px;
                 }
 
+                /*
+                 * MOBILE
+                 *
+                 * Keep the normal table layout.
+                 * Do NOT convert the table into cards.
+                 */
+
                 @media only screen and (max-width: 600px) {
 
                     .container {
@@ -330,18 +341,18 @@ public class PuneBidEmailService : IPuneBidEmailService
                     }
 
                     .header h1 {
-                        font-size: 19px !important;
-                        line-height: 24px !important;
+                        font-size: 18px !important;
+                        line-height: 23px !important;
                     }
 
                     .summary {
-                        padding: 12px 8px !important;
-                        font-size: 12px !important;
+                        padding: 12px 6px !important;
+                        font-size: 11px !important;
                     }
 
                     .section {
-                        padding-left: 6px !important;
-                        padding-right: 6px !important;
+                        padding-left: 4px !important;
+                        padding-right: 4px !important;
                         padding-bottom: 14px !important;
                     }
 
@@ -350,25 +361,99 @@ public class PuneBidEmailService : IPuneBidEmailService
                         padding: 8px !important;
                     }
 
+                    /*
+                     * KEEP TABLE
+                     */
+
                     .bid-table {
-                        font-size: 8px !important;
+                        width: 100% !important;
+                        table-layout: fixed !important;
+                        border-collapse: collapse !important;
+                        font-size: 9px !important;
                     }
 
                     .bid-table th {
                         padding: 6px 3px !important;
-                        font-size: 7px !important;
+                        font-size: 8px !important;
+                        line-height: 11px !important;
+                        word-break: normal !important;
                     }
 
                     .bid-table td {
-                        padding: 6px 3px !important;
+                        padding: 7px 3px !important;
+                        font-size: 9px !important;
+                        line-height: 12px !important;
+                        vertical-align: middle !important;
+                        word-break: break-word !important;
+                        overflow-wrap: anywhere !important;
+                        white-space: normal !important;
+                    }
+
+                    /*
+                     * Mobile column widths:
+                     *
+                     * Bid Number   = 29%
+                     * Item Category = 35%
+                     * Start Date   = 18%
+                     * End Date     = 18%
+                     */
+
+                    .bid-table th:nth-child(1),
+                    .bid-table td:nth-child(1) {
+                        width: 29% !important;
+                    }
+
+                    .bid-table th:nth-child(2),
+                    .bid-table td:nth-child(2) {
+                        width: 35% !important;
+                    }
+
+                    .bid-table th:nth-child(3),
+                    .bid-table td:nth-child(3) {
+                        width: 18% !important;
+                    }
+
+                    .bid-table th:nth-child(4),
+                    .bid-table td:nth-child(4) {
+                        width: 18% !important;
+                    }
+
+                    .bid-number {
+                        font-size: 9px !important;
+                        line-height: 12px !important;
+                        word-break: break-all !important;
+                        overflow-wrap: anywhere !important;
+                    }
+
+                    .bid-number a {
+                        font-size: 9px !important;
+                        word-break: break-all !important;
+                        overflow-wrap: anywhere !important;
+                    }
+
+                    .item-category {
+                        font-size: 9px !important;
+                        line-height: 12px !important;
+                        word-break: break-word !important;
+                        overflow-wrap: anywhere !important;
                     }
 
                     .date {
-                        font-size: 7px !important;
+                        white-space: normal !important;
+                        font-size: 8px !important;
+                        line-height: 11px !important;
+                        word-break: normal !important;
+                        overflow-wrap: break-word !important;
+                    }
+
+                    .empty-message {
+                        padding: 9px !important;
+                        font-size: 11px !important;
                     }
 
                     .footer {
                         font-size: 9px !important;
+                        padding: 12px 8px !important;
                     }
                 }
 
@@ -380,7 +465,7 @@ public class PuneBidEmailService : IPuneBidEmailService
             <div class="container">
 
                 <div class="header">
-                    <h1>Pune and Wellington Bids</h1>
+                    <h1>Pune, Nilgiris and Leh Bids</h1>
                 </div>
 
                 <div class="summary">
@@ -389,13 +474,18 @@ public class PuneBidEmailService : IPuneBidEmailService
         html.Append(
             $"<strong>{puneBids.Count}</strong> Pune bid(s) " +
             $"&nbsp;&nbsp;•&nbsp;&nbsp; " +
-            $"<strong>{wellingtonBids.Count}</strong> Wellington bid(s)");
+            $"<strong>{nilgirisBids.Count}</strong> Nilgiris bid(s) " +
+            $"&nbsp;&nbsp;•&nbsp;&nbsp; " +
+            $"<strong>{lehBids.Count}</strong> Leh bid(s)");
 
         html.Append("""
                 </div>
         """);
 
-        // Pune section
+        /*
+         * PUNE
+         */
+
         html.Append("""
                 <div class="section">
 
@@ -412,18 +502,41 @@ public class PuneBidEmailService : IPuneBidEmailService
                 </div>
         """);
 
-        // Wellington section
+        /*
+         * NILGIRIS
+         */
+
         html.Append("""
                 <div class="section">
 
                     <div class="section-title">
-                        🌍 Wellington Bids
+                        📍 Nilgiris Bids
                     </div>
         """);
 
         AppendBidTable(
             html,
-            wellingtonBids);
+            nilgirisBids);
+
+        html.Append("""
+                </div>
+        """);
+
+        /*
+         * LEH
+         */
+
+        html.Append("""
+                <div class="section">
+
+                    <div class="section-title">
+                        📍 Leh Bids
+                    </div>
+        """);
+
+        AppendBidTable(
+            html,
+            lehBids);
 
         html.Append("""
                 </div>
@@ -460,18 +573,16 @@ public class PuneBidEmailService : IPuneBidEmailService
                     <table class="bid-table">
 
                         <colgroup>
-                            <col style="width: 32%;">
-                            <col style="width: 28%;">
-                            <col style="width: 12%;">
-                            <col style="width: 14%;">
-                            <col style="width: 14%;">
+                            <col style="width: 29%;">
+                            <col style="width: 35%;">
+                            <col style="width: 18%;">
+                            <col style="width: 18%;">
                         </colgroup>
 
                         <thead>
                             <tr>
                                 <th>Bid Number</th>
                                 <th>Item Category</th>
-                                <th>Category</th>
                                 <th>Start Date</th>
                                 <th>End Date</th>
                             </tr>
@@ -485,10 +596,9 @@ public class PuneBidEmailService : IPuneBidEmailService
             html.Append("<tr>");
 
             /*
-             * Bid Number
+             * BID NUMBER
              *
              * If PdfUrl exists, make the Bid Number clickable.
-             * If PdfUrl is missing, display the Bid Number normally.
              */
 
             if (!string.IsNullOrWhiteSpace(bid.PdfUrl))
@@ -515,25 +625,28 @@ public class PuneBidEmailService : IPuneBidEmailService
                     $"</td>");
             }
 
-            // Item Category
+            /*
+             * ITEM CATEGORY
+             */
+
             html.Append(
                 $"<td class=\"item-category\">" +
                 $"{Encode(bid.ItemCategory)}" +
                 $"</td>");
 
-            // Category
-            html.Append(
-                $"<td class=\"category\">" +
-                $"{Encode(bid.CategoryKey)}" +
-                $"</td>");
+            /*
+             * START DATE
+             */
 
-            // Start Date
             html.Append(
                 $"<td class=\"date\">" +
                 $"{Encode(FormatDate(bid.CardStartDate))}" +
                 $"</td>");
 
-            // End Date
+            /*
+             * END DATE
+             */
+
             html.Append(
                 $"<td class=\"date\">" +
                 $"{Encode(FormatDate(bid.CardEndDate))}" +
@@ -560,25 +673,36 @@ public class PuneBidEmailService : IPuneBidEmailService
                     StringComparison.OrdinalIgnoreCase))
             .ToList();
 
-        var wellingtonBids = bids
+        var nilgirisBids = bids
             .Where(x =>
                 string.Equals(
                     x.Location,
-                    "Wellington",
+                    "Nilgiris",
+                    StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+        var lehBids = bids
+            .Where(x =>
+                string.Equals(
+                    x.Location,
+                    "Leh",
                     StringComparison.OrdinalIgnoreCase))
             .ToList();
 
         var text = new StringBuilder();
 
-        text.AppendLine("Pune and Wellington Bids");
-        text.AppendLine("========================");
+        text.AppendLine("Pune, Nilgiris and Leh Bids");
+        text.AppendLine("===========================");
         text.AppendLine();
 
         text.AppendLine(
             $"Pune Bids: {puneBids.Count}");
 
         text.AppendLine(
-            $"Wellington Bids: {wellingtonBids.Count}");
+            $"Nilgiris Bids: {nilgirisBids.Count}");
+
+        text.AppendLine(
+            $"Leh Bids: {lehBids.Count}");
 
         text.AppendLine();
 
@@ -594,14 +718,26 @@ public class PuneBidEmailService : IPuneBidEmailService
             text.AppendLine();
         }
 
-        if (wellingtonBids.Count > 0)
+        if (nilgirisBids.Count > 0)
         {
-            text.AppendLine("WELLINGTON BIDS");
-            text.AppendLine("----------------");
+            text.AppendLine("NILGIRIS BIDS");
+            text.AppendLine("-------------");
 
             AppendPlainTextBids(
                 text,
-                wellingtonBids);
+                nilgirisBids);
+
+            text.AppendLine();
+        }
+
+        if (lehBids.Count > 0)
+        {
+            text.AppendLine("LEH BIDS");
+            text.AppendLine("--------");
+
+            AppendPlainTextBids(
+                text,
+                lehBids);
         }
 
         return text.ToString();

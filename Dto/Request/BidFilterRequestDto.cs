@@ -20,6 +20,9 @@ namespace GemApi.DTOs.Request
         public bool? Active { get; set; }
         public bool? ClosingSoon { get; set; }
         public bool? Expired { get; set; }
+        public bool? Weekly { get; set; }
+        public bool? Monthly { get; set; }
+        public bool? Yearly { get; set; }
 
 
         // Expiring Filters (new)

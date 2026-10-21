@@ -1,6 +1,8 @@
-﻿using GemApi.DTOs.Response;
+﻿
+using GemApi.DTOs.Response;
 using GemApi.Settings;
 using Microsoft.Extensions.Options;
+using System.Globalization;
 using System.Net;
 using System.Net.Mail;
 using System.Text;
@@ -27,6 +29,8 @@ public class PuneBidEmailService : IPuneBidEmailService
     {
         if (bids == null || bids.Count == 0)
         {
+            _logger.LogInformation(
+                "No bids supplied for the email alert. Email will not be sent.");
             return;
         }
 
@@ -34,56 +38,67 @@ public class PuneBidEmailService : IPuneBidEmailService
 
         var recipients = GetRecipients();
 
-        var html = BuildEmailHtml(bids);
+        if (recipients.Count == 0)
+        {
+            throw new InvalidOperationException(
+                "No receiver email addresses are configured in PuneBidAlert:ReceiverEmails.");
+        }
 
+        var html = BuildEmailHtml(bids);
         var plainText = BuildPlainText(bids);
 
-        using var message = new MailMessage();
-
-        message.From = new MailAddress(
-            _settings.SenderEmail.Trim(),
-            _settings.SenderName);
+        using var message = new MailMessage
+        {
+            From = new MailAddress(
+                _settings.SenderEmail.Trim(),
+                _settings.SenderName),
+            Subject = $"Pune, Nilgiris and Leh Bids - {bids.Count} Bid(s)",
+            SubjectEncoding = Encoding.UTF8,
+            BodyEncoding = Encoding.UTF8,
+            Body = plainText,
+            IsBodyHtml = false
+        };
 
         foreach (var recipient in recipients)
         {
             message.To.Add(recipient);
         }
 
-        message.Subject =
-            $"Pune, Nilgiris and Leh Bids - {bids.Count} Bid(s)";
+        if (!string.IsNullOrWhiteSpace(_settings.ReplyToEmail))
+        {
+            message.ReplyToList.Add(
+                new MailAddress(_settings.ReplyToEmail.Trim()));
+        }
 
-        var plainView = AlternateView.CreateAlternateViewFromString(
-            plainText,
-            Encoding.UTF8,
-            "text/plain");
+        message.AlternateViews.Add(
+            AlternateView.CreateAlternateViewFromString(
+                plainText,
+                Encoding.UTF8,
+                "text/plain"));
 
-        var htmlView = AlternateView.CreateAlternateViewFromString(
-            html,
-            Encoding.UTF8,
-            "text/html");
-
-        message.AlternateViews.Add(plainView);
-        message.AlternateViews.Add(htmlView);
+        message.AlternateViews.Add(
+            AlternateView.CreateAlternateViewFromString(
+                html,
+                Encoding.UTF8,
+                "text/html"));
 
         using var smtpClient = new SmtpClient(
-            _settings.SmtpHost,
+            _settings.SmtpHost.Trim(),
             _settings.SmtpPort)
         {
             EnableSsl = _settings.EnableSsl,
             UseDefaultCredentials = false,
             Credentials = new NetworkCredential(
-                _settings.SmtpUsername,
+                _settings.SmtpUsername.Trim(),
                 _settings.SmtpPassword)
         };
 
         _logger.LogInformation(
-            "Sending Pune/Nilgiris/Leh bid alert email for {Count} bid(s) to {RecipientCount} recipient(s) using Microsoft 365 SMTP.",
+            "Sending Pune/Nilgiris/Leh bid alert for {Count} bid(s) to {RecipientCount} recipient(s) using Brevo SMTP.",
             bids.Count,
             recipients.Count);
 
-        await smtpClient.SendMailAsync(
-            message,
-            cancellationToken);
+        await smtpClient.SendMailAsync(message, cancellationToken);
 
         _logger.LogInformation(
             "Pune/Nilgiris/Leh bid alert email sent successfully for {Count} bid(s).",
@@ -95,712 +110,358 @@ public class PuneBidEmailService : IPuneBidEmailService
         if (string.IsNullOrWhiteSpace(_settings.SenderEmail))
         {
             throw new InvalidOperationException(
-                "Pune bid alert sender email is not configured. " +
-                "Check PuneBidAlert:SenderEmail in appsettings.json.");
+                "PuneBidAlert:SenderEmail is missing from configuration.");
         }
 
         if (string.IsNullOrWhiteSpace(_settings.SmtpHost))
         {
             throw new InvalidOperationException(
-                "SMTP host is not configured. " +
-                "Check PuneBidAlert:SmtpHost in appsettings.json.");
+                "PuneBidAlert:SmtpHost is missing from configuration.");
+        }
+
+        if (_settings.SmtpPort <= 0 || _settings.SmtpPort > 65535)
+        {
+            throw new InvalidOperationException(
+                "PuneBidAlert:SmtpPort must be between 1 and 65535.");
         }
 
         if (string.IsNullOrWhiteSpace(_settings.SmtpUsername))
         {
             throw new InvalidOperationException(
-                "SMTP username is not configured. " +
-                "Check PuneBidAlert:SmtpUsername in appsettings.json.");
+                "PuneBidAlert:SmtpUsername is missing from configuration.");
         }
 
         if (string.IsNullOrWhiteSpace(_settings.SmtpPassword))
         {
             throw new InvalidOperationException(
-                "SMTP password is missing. " +
-                "Check PuneBidAlert:SmtpPassword in appsettings.json.");
+                "PuneBidAlert:SmtpPassword is missing from configuration.");
         }
 
-        if (_settings.SmtpPort <= 0)
+        if (_settings.ReceiverEmails == null ||
+            !_settings.ReceiverEmails.Any(
+                email => !string.IsNullOrWhiteSpace(email)))
         {
             throw new InvalidOperationException(
-                "SMTP port is invalid.");
+                "Configure at least one email address in PuneBidAlert:ReceiverEmails.");
         }
     }
 
     private List<string> GetRecipients()
     {
-        var recipients = _settings.ReceiverEmails
-            .Where(x => !string.IsNullOrWhiteSpace(x))
-            .Select(x => x.Trim())
+        return _settings.ReceiverEmails
+            .Where(email => !string.IsNullOrWhiteSpace(email))
+            .Select(email => email.Trim())
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
-
-        if (recipients.Count == 0)
-        {
-            throw new InvalidOperationException(
-                "No Pune bid alert receiver emails configured. " +
-                "Check PuneBidAlert:ReceiverEmails in appsettings.json.");
-        }
-
-        return recipients;
     }
 
     private static string BuildEmailHtml(
         IReadOnlyCollection<PuneBidAlertDto> bids)
     {
-        var puneBids = bids
-            .Where(x =>
-                string.Equals(
-                    x.Location,
-                    "Pune",
-                    StringComparison.OrdinalIgnoreCase))
-            .ToList();
+        var sb = new StringBuilder();
 
-        var nilgirisBids = bids
-            .Where(x =>
-                string.Equals(
-                    x.Location,
-                    "Nilgiris",
-                    StringComparison.OrdinalIgnoreCase))
-            .ToList();
-
-        var lehBids = bids
-            .Where(x =>
-                string.Equals(
-                    x.Location,
-                    "Leh",
-                    StringComparison.OrdinalIgnoreCase))
-            .ToList();
-
-        var html = new StringBuilder();
-
-        html.Append("""
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <meta charset="UTF-8">
-
-            <meta name="viewport"
-                  content="width=device-width, initial-scale=1.0">
-
-            <title>Pune, Nilgiris and Leh Bids</title>
-
-            <style>
-
-                html,
-                body {
-                    margin: 0;
-                    padding: 0;
-                    width: 100%;
-                    background-color: #f3f4f6;
-                }
-
-                body {
-                    font-family: Arial, Helvetica, sans-serif;
-                    color: #1f2937;
-                }
-
-                .container {
-                    width: 100%;
-                    max-width: 900px;
-                    margin: 20px auto;
-                    background-color: #ffffff;
-                }
-
-                .header {
-                    background-color: #1d4ed8;
-                    color: #ffffff;
-                    padding: 20px 15px;
-                    text-align: center;
-                }
-
-                .header h1 {
-                    margin: 0;
-                    font-size: 22px;
-                    line-height: 28px;
-                }
-
-                .summary {
-                    padding: 15px;
-                    text-align: center;
-                    font-size: 13px;
-                    color: #4b5563;
-                }
-
-                .section {
-                    padding: 0 12px 18px 12px;
-                }
-
-                .section-title {
-                    margin: 0 0 8px 0;
-                    padding: 9px 10px;
-                    background-color: #f3f4f6;
-                    border-left: 4px solid #1d4ed8;
-                    font-size: 15px;
-                    font-weight: bold;
-                    color: #111827;
-                }
-
-                .bid-table {
-                    width: 100%;
-                    border-collapse: collapse;
-                    table-layout: fixed;
-                    font-size: 11px;
-                }
-
-                .bid-table th {
-                    background-color: #1d4ed8;
-                    color: #ffffff;
-                    padding: 7px 5px;
-                    text-align: left;
-                    font-size: 10px;
-                    font-weight: bold;
-                    border-right: 1px solid #ffffff;
-                    word-break: normal;
-                }
-
-                .bid-table th:last-child {
-                    border-right: none;
-                }
-
-                .bid-table td {
-                    padding: 7px 5px;
-                    border-bottom: 1px solid #e5e7eb;
-                    vertical-align: middle;
-                    word-break: break-word;
-                    overflow-wrap: anywhere;
-                    white-space: normal;
-                }
-
-                .bid-table tbody tr:nth-child(even) {
-                    background-color: #f9fafb;
-                }
-
-                .bid-number {
-                    font-weight: bold;
-                    word-break: break-all;
-                    overflow-wrap: anywhere;
-                }
-
-                .bid-number a {
-                    color: #1d4ed8;
-                    text-decoration: none;
-                    font-weight: bold;
-                    word-break: break-all;
-                    overflow-wrap: anywhere;
-                }
-
-                .bid-number a:hover {
-                    text-decoration: underline;
-                }
-
-                .item-category {
-                    word-break: break-word;
-                    overflow-wrap: anywhere;
-                }
-
-                .date {
-                    white-space: normal;
-                    font-size: 10px;
-                    word-break: normal;
-                    overflow-wrap: break-word;
-                }
-
-                .empty-message {
-                    padding: 10px;
-                    color: #6b7280;
-                    font-size: 12px;
-                    text-align: center;
-                    border: 1px solid #e5e7eb;
-                }
-
-                .footer {
-                    padding: 12px;
-                    text-align: center;
-                    background-color: #f9fafb;
-                    color: #6b7280;
-                    font-size: 10px;
-                }
-
-                /*
-                 * MOBILE
-                 *
-                 * Keep the normal table layout.
-                 * Do NOT convert the table into cards.
-                 */
-
-                @media only screen and (max-width: 600px) {
-
-                    .container {
-                        width: 100% !important;
-                        margin: 0 !important;
+        sb.Append("""
+            <!DOCTYPE html>
+            <html lang="en">
+            <head>
+                <meta charset="UTF-8">
+                <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                <title>Pune, Nilgiris and Leh Bids</title>
+                <style>
+                    body {
+                        margin: 0;
+                        padding: 16px;
+                        font-family: Arial, Helvetica, sans-serif;
+                        color: #222222;
+                        background-color: #ffffff;
                     }
 
-                    .header {
-                        padding: 16px 10px !important;
+                    .email-container {
+                        width: 100%;
+                        max-width: 900px;
+                        margin: 0 auto;
                     }
 
-                    .header h1 {
-                        font-size: 18px !important;
-                        line-height: 23px !important;
+                    h2 {
+                        margin: 0 0 22px 0;
+                        font-size: 22px;
+                        line-height: 1.4;
                     }
 
-                    .summary {
-                        padding: 12px 6px !important;
-                        font-size: 11px !important;
+                    h3 {
+                        margin: 24px 0 10px 0;
+                        font-size: 17px;
                     }
 
-                    .section {
-                        padding-left: 4px !important;
-                        padding-right: 4px !important;
-                        padding-bottom: 14px !important;
+                    .table-wrapper {
+                        width: 100%;
+                        overflow-x: auto;
+                        margin-bottom: 20px;
                     }
 
-                    .section-title {
-                        font-size: 14px !important;
-                        padding: 8px !important;
+                    table {
+                        width: 100%;
+                        border-collapse: collapse;
+                        table-layout: fixed;
+                        font-size: 13px;
                     }
 
-                    /*
-                     * KEEP TABLE
-                     */
-
-                    .bid-table {
-                        width: 100% !important;
-                        table-layout: fixed !important;
-                        border-collapse: collapse !important;
-                        font-size: 9px !important;
+                    th, td {
+                        border: 1px solid #d9d9d9;
+                        padding: 10px 8px;
+                        text-align: left;
+                        vertical-align: top;
+                        overflow-wrap: anywhere;
+                        word-break: normal;
                     }
 
-                    .bid-table th {
-                        padding: 6px 3px !important;
-                        font-size: 8px !important;
-                        line-height: 11px !important;
-                        word-break: normal !important;
+                    th {
+                        background-color: #f2f4f7;
+                        font-weight: bold;
                     }
 
-                    .bid-table td {
-                        padding: 7px 3px !important;
-                        font-size: 9px !important;
-                        line-height: 12px !important;
-                        vertical-align: middle !important;
-                        word-break: break-word !important;
-                        overflow-wrap: anywhere !important;
-                        white-space: normal !important;
-                    }
+                    th:nth-child(1), td:nth-child(1) { width: 29%; }
+                    th:nth-child(2), td:nth-child(2) { width: 35%; }
+                    th:nth-child(3), td:nth-child(3) { width: 18%; }
+                    th:nth-child(4), td:nth-child(4) { width: 18%; }
 
-                    /*
-                     * Mobile column widths:
-                     *
-                     * Bid Number   = 29%
-                     * Item Category = 35%
-                     * Start Date   = 18%
-                     * End Date     = 18%
-                     */
-
-                    .bid-table th:nth-child(1),
-                    .bid-table td:nth-child(1) {
-                        width: 29% !important;
-                    }
-
-                    .bid-table th:nth-child(2),
-                    .bid-table td:nth-child(2) {
-                        width: 35% !important;
-                    }
-
-                    .bid-table th:nth-child(3),
-                    .bid-table td:nth-child(3) {
-                        width: 18% !important;
-                    }
-
-                    .bid-table th:nth-child(4),
-                    .bid-table td:nth-child(4) {
-                        width: 18% !important;
-                    }
-
-                    .bid-number {
-                        font-size: 9px !important;
-                        line-height: 12px !important;
-                        word-break: break-all !important;
-                        overflow-wrap: anywhere !important;
-                    }
-
-                    .bid-number a {
-                        font-size: 9px !important;
-                        word-break: break-all !important;
-                        overflow-wrap: anywhere !important;
-                    }
-
-                    .item-category {
-                        font-size: 9px !important;
-                        line-height: 12px !important;
-                        word-break: break-word !important;
-                        overflow-wrap: anywhere !important;
-                    }
-
-                    .date {
-                        white-space: normal !important;
-                        font-size: 8px !important;
-                        line-height: 11px !important;
-                        word-break: normal !important;
-                        overflow-wrap: break-word !important;
+                    a {
+                        color: #0563c1;
+                        text-decoration: underline;
+                        overflow-wrap: anywhere;
                     }
 
                     .empty-message {
-                        padding: 9px !important;
-                        font-size: 11px !important;
+                        color: #555555;
+                        font-size: 13px;
                     }
 
-                    .footer {
-                        font-size: 9px !important;
-                        padding: 12px 8px !important;
+                    @media only screen and (max-width: 600px) {
+                        body {
+                            padding: 8px;
+                        }
+
+                        h2 {
+                            font-size: 19px;
+                        }
+
+                        h3 {
+                            font-size: 15px;
+                        }
+
+                        table {
+                            font-size: 11px;
+                        }
+
+                        th, td {
+                            padding: 7px 5px;
+                        }
                     }
-                }
+                </style>
+            </head>
+            <body>
+            <div class="email-container">
+            <h2>Pune, Nilgiris and Leh Bids</h2>
+            """);
 
-            </style>
-        </head>
+        AppendBidTable(sb, bids, "Pune", "📍 Pune Bids");
+        AppendBidTable(sb, bids, "Nilgiris", "📍 Nilgiris Bids");
+        AppendBidTable(sb, bids, "Leh", "📍 Leh Bids");
 
-        <body>
-
-            <div class="container">
-
-                <div class="header">
-                    <h1>Pune, Nilgiris and Leh Bids</h1>
-                </div>
-
-                <div class="summary">
-        """);
-
-        html.Append(
-            $"<strong>{puneBids.Count}</strong> Pune bid(s) " +
-            $"&nbsp;&nbsp;•&nbsp;&nbsp; " +
-            $"<strong>{nilgirisBids.Count}</strong> Nilgiris bid(s) " +
-            $"&nbsp;&nbsp;•&nbsp;&nbsp; " +
-            $"<strong>{lehBids.Count}</strong> Leh bid(s)");
-
-        html.Append("""
-                </div>
-        """);
-
-        /*
-         * PUNE
-         */
-
-        html.Append("""
-                <div class="section">
-
-                    <div class="section-title">
-                        📍 Pune Bids
-                    </div>
-        """);
-
-        AppendBidTable(
-            html,
-            puneBids);
-
-        html.Append("""
-                </div>
-        """);
-
-        /*
-         * NILGIRIS
-         */
-
-        html.Append("""
-                <div class="section">
-
-                    <div class="section-title">
-                        📍 Nilgiris Bids
-                    </div>
-        """);
-
-        AppendBidTable(
-            html,
-            nilgirisBids);
-
-        html.Append("""
-                </div>
-        """);
-
-        /*
-         * LEH
-         */
-
-        html.Append("""
-                <div class="section">
-
-                    <div class="section-title">
-                        📍 Leh Bids
-                    </div>
-        """);
-
-        AppendBidTable(
-            html,
-            lehBids);
-
-        html.Append("""
-                </div>
-
-                <div class="footer">
-                    Automatically generated by GeM Bid Alert System
-                </div>
-
+        sb.Append("""
             </div>
+            </body>
+            </html>
+            """);
 
-        </body>
-        </html>
-        """);
-
-        return html.ToString();
+        return sb.ToString();
     }
 
     private static void AppendBidTable(
-        StringBuilder html,
-        IReadOnlyCollection<PuneBidAlertDto> bids)
+        StringBuilder sb,
+        IReadOnlyCollection<PuneBidAlertDto> bids,
+        string location,
+        string sectionTitle)
     {
-        if (bids.Count == 0)
-        {
-            html.Append("""
-                    <div class="empty-message">
-                        No bids detected.
-                    </div>
-            """);
+        var locationBids = bids
+            .Where(bid => string.Equals(
+                bid.Location?.Trim(),
+                location,
+                StringComparison.OrdinalIgnoreCase))
+            .ToList();
 
+        if (locationBids.Count == 0)
+        {
             return;
         }
 
-        html.Append("""
-                    <table class="bid-table">
+        sb.Append("<h3>");
+        sb.Append(Encode(sectionTitle));
+        sb.Append("</h3>");
 
-                        <colgroup>
-                            <col style="width: 29%;">
-                            <col style="width: 35%;">
-                            <col style="width: 18%;">
-                            <col style="width: 18%;">
-                        </colgroup>
+        sb.Append("""
+            <div class="table-wrapper">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Bid Number</th>
+                        <th>Item Category</th>
+                        <th>Start Date</th>
+                        <th>End Date</th>
+                    </tr>
+                </thead>
+                <tbody>
+            """);
 
-                        <thead>
-                            <tr>
-                                <th>Bid Number</th>
-                                <th>Item Category</th>
-                                <th>Start Date</th>
-                                <th>End Date</th>
-                            </tr>
-                        </thead>
-
-                        <tbody>
-        """);
-
-        foreach (var bid in bids)
+        foreach (var bid in locationBids)
         {
-            html.Append("<tr>");
+            sb.Append("<tr>");
 
-            /*
-             * BID NUMBER
-             *
-             * If PdfUrl exists, make the Bid Number clickable.
-             */
+            sb.Append("<td>");
 
-            if (!string.IsNullOrWhiteSpace(bid.PdfUrl))
+            if (!string.IsNullOrWhiteSpace(bid.PdfUrl) &&
+                Uri.TryCreate(
+                    bid.PdfUrl.Trim(),
+                    UriKind.Absolute,
+                    out var pdfUri) &&
+                (pdfUri.Scheme == Uri.UriSchemeHttp ||
+                 pdfUri.Scheme == Uri.UriSchemeHttps))
             {
-                var encodedUrl =
-                    EncodeAttribute(bid.PdfUrl);
-
-                var encodedBidNumber =
-                    Encode(bid.BidNumber);
-
-                html.Append(
-                    $"<td class=\"bid-number\">" +
-                    $"<a href=\"{encodedUrl}\" " +
-                    $"target=\"_blank\">" +
-                    $"{encodedBidNumber}" +
-                    $"</a>" +
-                    $"</td>");
+                sb.Append("<a href=\"");
+                sb.Append(EncodeAttribute(pdfUri.AbsoluteUri));
+                sb.Append("\" target=\"_blank\" rel=\"noopener noreferrer\">");
+                sb.Append(Encode(bid.BidNumber));
+                sb.Append("</a>");
             }
             else
             {
-                html.Append(
-                    $"<td class=\"bid-number\">" +
-                    $"{Encode(bid.BidNumber)}" +
-                    $"</td>");
+                sb.Append(Encode(bid.BidNumber));
             }
 
-            /*
-             * ITEM CATEGORY
-             */
+            sb.Append("</td>");
 
-            html.Append(
-                $"<td class=\"item-category\">" +
-                $"{Encode(bid.ItemCategory)}" +
-                $"</td>");
+            sb.Append("<td>");
+            sb.Append(Encode(bid.ItemCategory));
+            sb.Append("</td>");
 
-            /*
-             * START DATE
-             */
+            sb.Append("<td>");
+            sb.Append(Encode(FormatDate(bid.CardStartDate)));
+            sb.Append("</td>");
 
-            html.Append(
-                $"<td class=\"date\">" +
-                $"{Encode(FormatDate(bid.CardStartDate))}" +
-                $"</td>");
+            sb.Append("<td>");
+            sb.Append(Encode(FormatDate(bid.CardEndDate)));
+            sb.Append("</td>");
 
-            /*
-             * END DATE
-             */
-
-            html.Append(
-                $"<td class=\"date\">" +
-                $"{Encode(FormatDate(bid.CardEndDate))}" +
-                $"</td>");
-
-            html.Append("</tr>");
+            sb.Append("</tr>");
         }
 
-        html.Append("""
-                        </tbody>
-
-                    </table>
-        """);
+        sb.Append("""
+                </tbody>
+            </table>
+            </div>
+            """);
     }
 
     private static string BuildPlainText(
         IReadOnlyCollection<PuneBidAlertDto> bids)
     {
-        var puneBids = bids
-            .Where(x =>
-                string.Equals(
-                    x.Location,
-                    "Pune",
-                    StringComparison.OrdinalIgnoreCase))
-            .ToList();
+        var sb = new StringBuilder();
 
-        var nilgirisBids = bids
-            .Where(x =>
-                string.Equals(
-                    x.Location,
-                    "Nilgiris",
-                    StringComparison.OrdinalIgnoreCase))
-            .ToList();
+        sb.AppendLine("Pune, Nilgiris and Leh Bids");
+        sb.AppendLine(new string('=', 35));
+        sb.AppendLine();
 
-        var lehBids = bids
-            .Where(x =>
-                string.Equals(
-                    x.Location,
-                    "Leh",
-                    StringComparison.OrdinalIgnoreCase))
-            .ToList();
+        AppendPlainTextBids(sb, bids, "Pune");
+        AppendPlainTextBids(sb, bids, "Nilgiris");
+        AppendPlainTextBids(sb, bids, "Leh");
 
-        var text = new StringBuilder();
-
-        text.AppendLine("Pune, Nilgiris and Leh Bids");
-        text.AppendLine("===========================");
-        text.AppendLine();
-
-        text.AppendLine(
-            $"Pune Bids: {puneBids.Count}");
-
-        text.AppendLine(
-            $"Nilgiris Bids: {nilgirisBids.Count}");
-
-        text.AppendLine(
-            $"Leh Bids: {lehBids.Count}");
-
-        text.AppendLine();
-
-        if (puneBids.Count > 0)
-        {
-            text.AppendLine("PUNE BIDS");
-            text.AppendLine("---------");
-
-            AppendPlainTextBids(
-                text,
-                puneBids);
-
-            text.AppendLine();
-        }
-
-        if (nilgirisBids.Count > 0)
-        {
-            text.AppendLine("NILGIRIS BIDS");
-            text.AppendLine("-------------");
-
-            AppendPlainTextBids(
-                text,
-                nilgirisBids);
-
-            text.AppendLine();
-        }
-
-        if (lehBids.Count > 0)
-        {
-            text.AppendLine("LEH BIDS");
-            text.AppendLine("--------");
-
-            AppendPlainTextBids(
-                text,
-                lehBids);
-        }
-
-        return text.ToString();
+        return sb.ToString();
     }
 
     private static void AppendPlainTextBids(
-        StringBuilder text,
-        IReadOnlyCollection<PuneBidAlertDto> bids)
+        StringBuilder sb,
+        IReadOnlyCollection<PuneBidAlertDto> bids,
+        string location)
     {
-        foreach (var bid in bids)
+        var locationBids = bids
+            .Where(bid => string.Equals(
+                bid.Location?.Trim(),
+                location,
+                StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+        if (locationBids.Count == 0)
         {
-            text.AppendLine(
-                $"Bid Number: {bid.BidNumber}");
+            return;
+        }
 
-            text.AppendLine(
-                $"Item Category: {bid.ItemCategory}");
+        sb.AppendLine($"📍 {location} Bids");
+        sb.AppendLine(new string('-', 30));
 
-            text.AppendLine(
-                $"Category: {bid.CategoryKey}");
-
-            text.AppendLine(
-                $"Start Date: {FormatDate(bid.CardStartDate)}");
-
-            text.AppendLine(
-                $"End Date: {FormatDate(bid.CardEndDate)}");
+        foreach (var bid in locationBids)
+        {
+            sb.AppendLine($"Bid Number: {bid.BidNumber}");
+            sb.AppendLine($"Category: {bid.CategoryKey}");
+            sb.AppendLine($"Item Category: {bid.ItemCategory}");
+            sb.AppendLine($"Start Date: {FormatDate(bid.CardStartDate)}");
+            sb.AppendLine($"End Date: {FormatDate(bid.CardEndDate)}");
 
             if (!string.IsNullOrWhiteSpace(bid.PdfUrl))
             {
-                text.AppendLine(
-                    $"PDF: {bid.PdfUrl}");
+                sb.AppendLine($"PDF: {bid.PdfUrl}");
             }
 
-            text.AppendLine();
+            sb.AppendLine();
         }
     }
 
-    private static string FormatDate(string? value)
+    private static string FormatDate(object? value)
     {
-        if (string.IsNullOrWhiteSpace(value))
+        if (value == null)
         {
-            return string.Empty;
+            return "N/A";
+        }
+
+        if (value is DateTime dateTime)
+        {
+            return dateTime.ToString("dd-MMM-yyyy", CultureInfo.InvariantCulture);
+        }
+
+        if (value is DateTimeOffset dateTimeOffset)
+        {
+            return dateTimeOffset.ToString(
+                "dd-MMM-yyyy",
+                CultureInfo.InvariantCulture);
+        }
+
+        var text = Convert.ToString(value, CultureInfo.InvariantCulture);
+
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return "N/A";
         }
 
         if (DateTime.TryParse(
-                value,
-                out var date))
+            text,
+            CultureInfo.InvariantCulture,
+            DateTimeStyles.AssumeLocal,
+            out var parsedDate))
         {
-            return date.ToString(
-                "dd-MMM-yyyy HH:mm");
+            return parsedDate.ToString(
+                "dd-MMM-yyyy",
+                CultureInfo.InvariantCulture);
         }
 
-        return value;
+        return text;
     }
 
     private static string Encode(string? value)
     {
-        return HtmlEncoder.Default.Encode(
-            value ?? string.Empty);
+        return HtmlEncoder.Default.Encode(value ?? string.Empty);
     }
 
     private static string EncodeAttribute(string? value)
     {
-        return HtmlEncoder.Default.Encode(
-            value ?? string.Empty);
+        return HtmlEncoder.Default.Encode(value ?? string.Empty);
     }
 }

@@ -8,7 +8,9 @@ public class PuneBidAlertSettings
 
     public string SenderName { get; set; } = string.Empty;
 
-    public string SmtpHost { get; set; } = "smtp.office365.com";
+    public string ReplyToEmail { get; set; } = string.Empty;
+
+    public string SmtpHost { get; set; } = "smtp-relay.brevo.com";
 
     public int SmtpPort { get; set; } = 587;
 

@@ -73,6 +73,16 @@ builder.Services.AddAutoMapper(
 
 #region DI
 
+builder.Services.AddMemoryCache();
+
+builder.Services.AddHttpClient("GemPdfClient", client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(45);
+    client.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36");
+    client.DefaultRequestHeaders.Accept.ParseAdd("application/pdf,*/*");
+    client.DefaultRequestHeaders.Referrer = new Uri("https://bidplus.gem.gov.in/all-bids");
+});
+
 builder.Services.AddScoped<
     IGeMBidRepository,
     GeMBidRepository

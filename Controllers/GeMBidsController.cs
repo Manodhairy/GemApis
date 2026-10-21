@@ -1,4 +1,4 @@
-﻿using GemApi.DTOs.Request;
+using GemApi.DTOs.Request;
 using GemApi.Services.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -69,7 +69,33 @@ namespace GemApi.Controllers
                 fileName);
         }
 
-        
+        // GET api/gembids/pdf?bidNumber=GEM/2026/B/7806411&download=false
+        [AllowAnonymous]
+        [HttpGet("pdf")]
+        public async Task<IActionResult> GetBidPdf(
+            [FromQuery] string? bidNumber,
+            [FromQuery] string? url,
+            [FromQuery] bool download = false,
+            CancellationToken ct = default)
+        {
+            var targetIdentifier = !string.IsNullOrWhiteSpace(bidNumber) ? bidNumber : url;
+            if (string.IsNullOrWhiteSpace(targetIdentifier))
+            {
+                return BadRequest(new { message = "Bid number or URL parameter is required." });
+            }
+
+            var (fileBytes, fileName, errorMessage) = await _service.GetBidPdfAsync(targetIdentifier, ct);
+            if (fileBytes == null || fileBytes.Length == 0)
+            {
+                return NotFound(new { message = errorMessage ?? $"Tender PDF document for '{targetIdentifier}' could not be found or retrieved." });
+            }
+
+            var disposition = download ? "attachment" : "inline";
+            Response.Headers["Content-Disposition"] = $"{disposition}; filename=\"{fileName}\"";
+
+            return File(fileBytes, "application/pdf", download ? fileName : null);
+        }
+
         [HttpGet("{*bidNumber}")]
         public async Task<IActionResult> GetBidDetails(string bidNumber)
         {

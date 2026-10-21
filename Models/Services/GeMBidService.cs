@@ -5,28 +5,40 @@ using GemApi.Models.Entity;
 using GemApi.Repository.Interfaces;
 using GemApi.Services.Interfaces;
 using Microsoft.EntityFrameworkCore;
-
+using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.Logging;
 using MiniExcelLibs;
+using System.Net.Http;
 
 namespace GemApi.Services
 {
     public class GeMBidService : IGeMBidService
     {
-        #region Filed
-
+        #region Fields
         private const int ClosingSoonWindowDays = 1;
+        private const string DashboardCacheKey = "GeM_Dashboard_Stats_Cache";
+        private static readonly TimeSpan DashboardCacheDuration = TimeSpan.FromMinutes(3);
 
         private readonly IGeMBidRepository _repository;
         private readonly IMapper _mapper;
+        private readonly IMemoryCache _cache;
+        private readonly IHttpClientFactory _httpClientFactory;
+        private readonly ILogger<GeMBidService> _logger;
         #endregion
 
         #region Constructor
         public GeMBidService(
             IGeMBidRepository repository,
-            IMapper mapper)
+            IMapper mapper,
+            IMemoryCache cache,
+            IHttpClientFactory httpClientFactory,
+            ILogger<GeMBidService> logger)
         {
             _repository = repository;
             _mapper = mapper;
+            _cache = cache;
+            _httpClientFactory = httpClientFactory;
+            _logger = logger;
         }
         #endregion
 
@@ -126,27 +138,45 @@ namespace GemApi.Services
                         (double)request.PageSize)
                     : 0;
 
-            var entities = await query
-                .Skip(
-                    (request.PageNumber - 1)
-                    * request.PageSize)
+            var now = DateTime.Now;
+            var closingSoonUpperBound = now.AddDays(ClosingSoonWindowDays);
+
+            // OPTIMIZATION: Project only the required columns directly in SQL
+            // Avoids fetching 80+ columns (NVARCHAR(MAX) & JSON) over the network
+            var dtoList = await query
+                .Skip((request.PageNumber - 1) * request.PageSize)
                 .Take(request.PageSize)
+                .Select(x => new BidListDto
+                {
+                    BidNumber = x.BidNumber,
+                    DepartmentName = !string.IsNullOrEmpty(x.DepartmentName) 
+                        ? x.DepartmentName 
+                        : (!string.IsNullOrEmpty(x.CardDepartment) ? x.CardDepartment : "N/A"),
+                    OrganisationName = !string.IsNullOrEmpty(x.OrganisationName) 
+                        ? x.OrganisationName 
+                        : "N/A",
+                    OfficeName = x.OfficeName,
+                    Location = !string.IsNullOrEmpty(x.Location) ? x.Location : (!string.IsNullOrEmpty(x.OfficeName) ? x.OfficeName : "-"),
+                    ConsigneeName = x.ConsigneeName,
+                    CategoryKey = !string.IsNullOrEmpty(x.CategoryKey) ? x.CategoryKey : (!string.IsNullOrEmpty(x.ItemCategory) ? x.ItemCategory : "OTHER"),
+                    CategorySubKey = !string.IsNullOrEmpty(x.CategorySubKey) ? x.CategorySubKey : (!string.IsNullOrEmpty(x.CategoryKey) ? x.CategoryKey : "OTHER"),
+                    ItemCategory = x.ItemCategory,
+                    Boqtitle = x.Boqtitle,
+                    CardStartDate = x.CardStartDate,
+                    CardEndDate = x.CardEndDate,
+                    BidDate = x.BidDate,
+                    TotalQuantity = x.TotalQuantity,
+                    EstimatedBidValue = x.EstimatedBidValue,
+                    EmdAmount = x.EmdAmount,
+                    CreatedOn = x.CreatedOn,
+                    UpdatedOn = x.UpdatedOn,
+                    PdfUrl = x.PdfUrl,
+                    IsActive = x.CardStartDate <= now && x.CardEndDate >= now,
+                    IsClosingSoon = x.CardEndDate >= now && x.CardEndDate <= closingSoonUpperBound
+                })
                 .ToListAsync();
 
-            var dtoList =
-                _mapper.Map<List<BidListDto>>(
-                    entities);
-
-            // so status is derived here using CardStartDate/CardEndDate only)
-            var now = DateTime.Now;
-            foreach (var (dto, entity) in dtoList.Zip(entities, (d, e) => (d, e)))
-            {
-                dto.IsActive = IsActive(entity.CardStartDate, entity.CardEndDate, now);
-                dto.IsClosingSoon = IsClosingSoon(entity.CardEndDate, now);
-            }
-
-            var filters =
-                await GetFiltersAsync(request);
+            var filters = await GetFiltersAsync(request);
 
             return new PagedResponseDto<
                 List<BidListDto>>
@@ -364,203 +394,98 @@ namespace GemApi.Services
         #endregion
 
 
-        #region DASHBOARD
-        public async Task<DashboardDto>
-            GetDashboardAsync()
+        #region DASHBOARD (Cached in memory for 3 minutes)
+        public async Task<DashboardDto> GetDashboardAsync()
         {
+            if (_cache.TryGetValue(DashboardCacheKey, out DashboardDto? cachedDashboard) && cachedDashboard != null)
+            {
+                return cachedDashboard;
+            }
+
             var query = _repository.GetAll();
             var now = DateTime.Now;
             var today = now.Date;
             var closingSoonUpperBound = now.AddDays(ClosingSoonWindowDays);
 
-           
-            var activeQuery = query.Where(x =>
-                x.CardStartDate <= now
-                &&
-                x.CardEndDate >= now);
+            var activeQuery = query.Where(x => x.CardStartDate <= now && x.CardEndDate >= now);
 
+            // Fast KPI Counts directly from indexed columns
             var dashboard = new DashboardDto
             {
-                TotalBids =
-                    await query.CountAsync(),
-                ActiveBids =
-                    await activeQuery.CountAsync(),
-                ClosingSoon =
-                    await query.CountAsync(
-                        x =>
-                            x.CardEndDate
-                            >= now
-                            &&
-                            x.CardEndDate
-                            <= closingSoonUpperBound),
-                ExpiredBids =
-                    await query.CountAsync(
-                        x =>
-                            x.CardEndDate
-                            < now),
-                TotalMinistries =
-                    await query
-                        .Where(x =>
-                            x.Ministry != null)
-                        .Select(x =>
-                            x.Ministry)
-                        .Distinct()
-                        .CountAsync(),
-                TotalDepartments =
-                    await query
-                        .Where(x =>
-                            x.DepartmentName
-                            != null)
-                        .Select(x =>
-                            x.DepartmentName)
-                        .Distinct()
-                        .CountAsync(),
-                TotalOrganisations =
-                    await query
-                        .Where(x =>
-                            x.OrganisationName
-                            != null)
-                        .Select(x =>
-                            x.OrganisationName)
-                        .Distinct()
-                        .CountAsync(),
-                TotalLocations =
-                    await query
-                        .Where(x =>
-                            !string.IsNullOrWhiteSpace(x.Location))
-                        .Select(x =>
-                            x.Location)
-                        .Distinct()
-                        .CountAsync(),
-
+                TotalBids = await query.CountAsync(),
+                ActiveBids = await activeQuery.CountAsync(),
+                ClosingSoon = await query.CountAsync(x => x.CardEndDate >= now && x.CardEndDate <= closingSoonUpperBound),
+                ExpiredBids = await query.CountAsync(x => x.CardEndDate < now)
             };
 
-            // ---- YEARLY  ----
-            var yearlyRaw =
-                await activeQuery
-                    .Where(x =>
-                        x.CardStartDate != null)
-                    .GroupBy(x =>
-                        x.CardStartDate!.Value.Year)
-                    .Select(g =>
-                        new
-                        {
-                            Year = g.Key,
-                            Count = g.Count()
-                        })
-                    .OrderBy(x => x.Year)
-                    .ToListAsync();
+            // ---- YEARLY ----
+            var yearlyRaw = await activeQuery
+                .Where(x => x.CardStartDate != null)
+                .GroupBy(x => x.CardStartDate!.Value.Year)
+                .Select(g => new { Year = g.Key, Count = g.Count() })
+                .OrderBy(x => x.Year)
+                .ToListAsync();
 
-            dashboard.YearlyBids =
-                yearlyRaw
-                    .Select(x =>
-                        new PeriodCountDto
-                        {
-                            Period = x.Year.ToString(),
-                            Count = x.Count
-                        })
-                    .ToList();
+            dashboard.YearlyBids = yearlyRaw
+                .Select(x => new PeriodCountDto { Period = x.Year.ToString(), Count = x.Count })
+                .ToList();
 
             // ---- MONTHLY (ACTIVE bids only) ----
-            var monthlyRaw =
-                await activeQuery
-                    .Where(x =>
-                        x.CardStartDate != null)
-                    .GroupBy(x =>
-                        new
-                        {
-                            x.CardStartDate!.Value.Year,
-                            x.CardStartDate!.Value.Month
-                        })
-                    .Select(g =>
-                        new
-                        {
-                            g.Key.Year,
-                            g.Key.Month,
-                            Count = g.Count()
-                        })
-                    .OrderBy(x => x.Year)
-                    .ThenBy(x => x.Month)
-                    .ToListAsync();
+            var monthlyRaw = await activeQuery
+                .Where(x => x.CardStartDate != null)
+                .GroupBy(x => new { x.CardStartDate!.Value.Year, x.CardStartDate!.Value.Month })
+                .Select(g => new { g.Key.Year, g.Key.Month, Count = g.Count() })
+                .OrderBy(x => x.Year)
+                .ThenBy(x => x.Month)
+                .ToListAsync();
 
-            dashboard.MonthlyBids =
-                monthlyRaw
-                    .Select(x =>
-                        new PeriodCountDto
-                        {
-                            Period = x.Year + "-" + x.Month.ToString("00"),
-                            Count = x.Count
-                        })
-                    .ToList();
+            dashboard.MonthlyBids = monthlyRaw
+                .Select(x => new PeriodCountDto { Period = $"{x.Year}-{x.Month:00}", Count = x.Count })
+                .ToList();
 
-            // ---- WEEKLY (ACTIVE bids only) ----
-            var startDates =
-                await activeQuery
-                    .Where(x =>
-                        x.CardStartDate != null)
-                    .Select(x =>
-                        x.CardStartDate!.Value)
-                    .ToListAsync();
+            // ---- WEEKLY (ACTIVE bids only, bounded to last 12 weeks) ----
+            var twelveWeeksAgo = today.AddDays(-84);
+            var recentStartDates = await activeQuery
+                .Where(x => x.CardStartDate != null && x.CardStartDate >= twelveWeeksAgo)
+                .Select(x => x.CardStartDate!.Value)
+                .ToListAsync();
 
-            dashboard.WeeklyBids =
-                startDates
-                    .GroupBy(d =>
-                        new
-                        {
-                            d.Year,
-                            Week = System.Globalization.ISOWeek.GetWeekOfYear(d)
-                        })
-                    .Select(g =>
-                        new PeriodCountDto
-                        {
-                            Period = $"{g.Key.Year}-W{g.Key.Week:00}",
-                            Count = g.Count()
-                        })
-                    .OrderBy(x => x.Period)
-                    .ToList();
+            dashboard.WeeklyBids = recentStartDates
+                .GroupBy(d => new
+                {
+                    d.Year,
+                    Week = System.Globalization.ISOWeek.GetWeekOfYear(d)
+                })
+                .Select(g => new PeriodCountDto
+                {
+                    Period = $"{g.Key.Year}-W{g.Key.Week:00}",
+                    Count = g.Count()
+                })
+                .OrderBy(x => x.Period)
+                .ToList();
 
-            // ---- date boundaries for exclusive expiring buckets ----
-            var endOfWeek =
-                today.AddDays(7);
-            var endOfMonth =
-                new DateTime(
-                    today.Year,
-                    today.Month,
-                    DateTime.DaysInMonth(today.Year, today.Month));
-            var endOfYear =
-                new DateTime(today.Year, 12, 31);
+            // ---- Date boundaries for exclusive expiring buckets ----
+            var endOfWeek = today.AddDays(7);
+            var endOfMonth = new DateTime(today.Year, today.Month, DateTime.DaysInMonth(today.Year, today.Month));
+            var endOfYear = new DateTime(today.Year, 12, 31);
 
-            // ---- EXPIRING THIS WEEK COUNT ----
-            dashboard.ExpiringThisWeekCount =
-                await query.CountAsync(x =>
-                    x.CardEndDate != null
-                    &&
-                    x.CardEndDate >= today
-                    &&
-                    x.CardEndDate <= endOfWeek);
+            dashboard.ExpiringThisWeekCount = await query.CountAsync(x =>
+                x.CardEndDate != null && x.CardEndDate >= today && x.CardEndDate <= endOfWeek);
 
-            // ---- EXPIRING THIS MONTH COUNT (after week, till end of month) ----
-            dashboard.ExpiringThisMonthCount =
-                await query.CountAsync(x =>
-                    x.CardEndDate != null
-                    &&
-                    x.CardEndDate > endOfWeek
-                    &&
-                    x.CardEndDate <= endOfMonth);
+            dashboard.ExpiringThisMonthCount = await query.CountAsync(x =>
+                x.CardEndDate != null && x.CardEndDate > endOfWeek && x.CardEndDate <= endOfMonth);
 
-            // ---- EXPIRING THIS YEAR COUNT (after month, till end of year) ----
-            dashboard.ExpiringThisYearCount =
-                await query.CountAsync(x =>
-                    x.CardEndDate != null
-                    &&
-                    x.CardEndDate > endOfMonth
-                    &&
-                    x.CardEndDate <= endOfYear);
+            dashboard.ExpiringThisYearCount = await query.CountAsync(x =>
+                x.CardEndDate != null && x.CardEndDate > endOfMonth && x.CardEndDate <= endOfYear);
+
+            // Store in memory cache for 3 minutes
+            _cache.Set(DashboardCacheKey, dashboard, DashboardCacheDuration);
 
             return dashboard;
         }
+        #endregion
 
-        // BUILD FILTER QUERY
+        #region BUILD FILTER QUERY
         private IQueryable<GeMbidExtract>
             BuildFilteredQuery(
                 BidFilterRequestDto request,
@@ -626,6 +551,46 @@ namespace GemApi.Services
                     query = query.Where(x =>
                         x.CardEndDate
                         < now);
+                }
+
+                // WEEKLY / MONTHLY / YEARLY (Active bids published in current week / month / year)
+                if (request.Weekly == true)
+                {
+                    var currentYear = today.Year;
+                    var currentWeek = System.Globalization.ISOWeek.GetWeekOfYear(today);
+                    var weekStart = System.Globalization.ISOWeek.ToDateTime(currentYear, currentWeek, DayOfWeek.Monday);
+                    var weekEnd = weekStart.AddDays(7).AddTicks(-1);
+
+                    query = query.Where(x =>
+                        x.CardStartDate <= now &&
+                        x.CardEndDate >= now &&
+                        x.CardStartDate != null &&
+                        x.CardStartDate >= weekStart &&
+                        x.CardStartDate <= weekEnd);
+                }
+                else if (request.Monthly == true)
+                {
+                    var monthStart = new DateTime(today.Year, today.Month, 1);
+                    var monthEnd = monthStart.AddMonths(1).AddTicks(-1);
+
+                    query = query.Where(x =>
+                        x.CardStartDate <= now &&
+                        x.CardEndDate >= now &&
+                        x.CardStartDate != null &&
+                        x.CardStartDate >= monthStart &&
+                        x.CardStartDate <= monthEnd);
+                }
+                else if (request.Yearly == true)
+                {
+                    var yearStart = new DateTime(today.Year, 1, 1);
+                    var yearEnd = yearStart.AddYears(1).AddTicks(-1);
+
+                    query = query.Where(x =>
+                        x.CardStartDate <= now &&
+                        x.CardEndDate >= now &&
+                        x.CardStartDate != null &&
+                        x.CardStartDate >= yearStart &&
+                        x.CardStartDate <= yearEnd);
                 }
 
                 // EXPIRING THIS WEEK / MONTH / YEAR
@@ -1030,6 +995,99 @@ namespace GemApi.Services
                 CategoryCounts =
                     categoryCounts
             };
+        }
+        #endregion
+
+        #region PDF Retrieval and Streaming Proxy
+        public async Task<(byte[]? FileBytes, string FileName, string? ErrorMessage)> GetBidPdfAsync(string bidNumber, CancellationToken ct = default)
+        {
+            if (string.IsNullOrWhiteSpace(bidNumber))
+            {
+                return (null, "", "Bid number or PDF URL must be specified.");
+            }
+
+            var trimmedInput = bidNumber.Trim();
+            string? targetPdfUrl = null;
+            string cleanBidNumber = trimmedInput;
+
+            // Check if input is already a direct/relative URL
+            if (trimmedInput.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
+                trimmedInput.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+            {
+                targetPdfUrl = trimmedInput;
+                cleanBidNumber = Path.GetFileNameWithoutExtension(trimmedInput);
+            }
+            else if (trimmedInput.StartsWith("/showbidDocument/", StringComparison.OrdinalIgnoreCase))
+            {
+                targetPdfUrl = $"https://bidplus.gem.gov.in{trimmedInput}";
+                cleanBidNumber = Path.GetFileNameWithoutExtension(trimmedInput);
+            }
+            else
+            {
+                // Look up bid in database
+                var entity = await _repository.GetByBidNumberAsync(trimmedInput);
+                if (entity == null)
+                {
+                    return (null, "", $"Bid '{trimmedInput}' was not found in the database.");
+                }
+
+                if (string.IsNullOrWhiteSpace(entity.PdfUrl))
+                {
+                    return (null, "", $"No PDF document URL is associated with bid '{trimmedInput}'.");
+                }
+
+                targetPdfUrl = entity.PdfUrl.Trim();
+                if (!targetPdfUrl.StartsWith("http://", StringComparison.OrdinalIgnoreCase) &&
+                    !targetPdfUrl.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+                {
+                    targetPdfUrl = $"https://bidplus.gem.gov.in{(targetPdfUrl.StartsWith('/') ? "" : "/")}{targetPdfUrl}";
+                }
+
+                cleanBidNumber = entity.BidNumber ?? trimmedInput;
+            }
+
+            var safeBaseName = cleanBidNumber.Replace("/", "_").Replace("\\", "_").Replace(":", "_");
+            var fileName = $"{safeBaseName}.pdf";
+            var cacheKey = $"pdf_{safeBaseName}";
+
+            // Check memory cache
+            if (_cache.TryGetValue(cacheKey, out byte[]? cachedBytes) && cachedBytes != null && cachedBytes.Length > 0)
+            {
+                return (cachedBytes, fileName, null);
+            }
+
+            try
+            {
+                var client = _httpClientFactory.CreateClient("GemPdfClient");
+                using var response = await client.GetAsync(targetPdfUrl, HttpCompletionOption.ResponseHeadersRead, ct);
+
+                if (!response.IsSuccessStatusCode)
+                {
+                    _logger.LogWarning("[PDF Proxy] HTTP {StatusCode} from GeM for URL {Url}", (int)response.StatusCode, targetPdfUrl);
+                    return (null, fileName, $"Failed to download tender PDF document: GeM server returned status code {(int)response.StatusCode}.");
+                }
+
+                var pdfBytes = await response.Content.ReadAsByteArrayAsync(ct);
+
+                // Verify valid PDF magic bytes: %PDF (0x25, 0x50, 0x44, 0x46)
+                if (pdfBytes.Length >= 4 &&
+                    pdfBytes[0] == 0x25 &&
+                    pdfBytes[1] == 0x50 &&
+                    pdfBytes[2] == 0x44 &&
+                    pdfBytes[3] == 0x46)
+                {
+                    _cache.Set(cacheKey, pdfBytes, TimeSpan.FromHours(1));
+                    return (pdfBytes, fileName, null);
+                }
+
+                _logger.LogWarning("[PDF Proxy] Downloaded data from {Url} did not contain valid PDF magic bytes (Length: {Len})", targetPdfUrl, pdfBytes.Length);
+                return (null, fileName, "The tender document could not be retrieved or is not a valid PDF file.");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "[PDF Proxy] Exception downloading PDF from {Url} for bid '{Bid}': {Msg}", targetPdfUrl, cleanBidNumber, ex.Message);
+                return (null, fileName, $"Failed to download tender PDF document: {ex.Message}");
+            }
         }
         #endregion
     }

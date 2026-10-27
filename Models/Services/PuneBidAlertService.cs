@@ -37,16 +37,14 @@ public class PuneBidAlertService : IPuneBidAlertService
 
         var lastCheckedAt = state.LastCheckedAt;
 
-        // Everything created/updated after this point
-        // will be processed during the next check.
+        // Use one consistent timestamp for this processing cycle.
         var checkStartedAt = DateTime.Now;
 
         _logger.LogInformation(
             "Location bid alert check started. LastCheckedAt: {LastCheckedAt}",
             lastCheckedAt);
 
-        // Get only records that changed between the previous
-        // successful checkpoint and the beginning of this check.
+        // Find records created or updated since the previous checkpoint.
         var changedBids = await _dbContext.GeMbidExtracts
             .AsNoTracking()
             .Where(x =>
@@ -63,21 +61,28 @@ public class PuneBidAlertService : IPuneBidAlertService
             .ToListAsync(cancellationToken);
 
         _logger.LogInformation(
-            "Found {Count} new or updated bids.",
+            "Found {Count} new or updated bids before eligibility filtering.",
             changedBids.Count);
 
-        // Find bids where:
-        // 1. CategoryKey is IT
-        // 2. Location is Pune, Nilgiris, or Leh
+        // Only active IT bids from the three configured locations
+        // are eligible for email notification.
         //
-        // IMPORTANT:
-        // Location is checked ONLY from the Location column.
+        // Active means:
+        // CardStartDate <= checkStartedAt
+        // CardEndDate   >= checkStartedAt
+        //
+        // Bids with missing start/end dates are excluded.
         var matchingBids = changedBids
             .Where(bid =>
                 string.Equals(
                     bid.CategoryKey,
                     "IT",
                     StringComparison.OrdinalIgnoreCase))
+            .Where(bid =>
+                bid.CardStartDate.HasValue &&
+                bid.CardEndDate.HasValue &&
+                bid.CardStartDate.Value <= checkStartedAt &&
+                bid.CardEndDate.Value >= checkStartedAt)
             .Select(bid => new
             {
                 Bid = bid,
@@ -102,11 +107,15 @@ public class PuneBidAlertService : IPuneBidAlertService
             .ToList();
 
         _logger.LogInformation(
-            "Found {PuneCount} IT Pune bid(s), {NilgirisCount} IT Nilgiris bid(s), and {LehCount} IT Leh bid(s).",
+            "Found {PuneCount} active IT Pune bid(s), " +
+            "{NilgirisCount} active IT Nilgiris bid(s), " +
+            "and {LehCount} active IT Leh bid(s).",
             puneBids.Count,
             nilgirisBids.Count,
             lehBids.Count);
 
+        // No eligible active IT bids were found.
+        // Advance the checkpoint so these changes are not repeatedly scanned.
         if (matchingBids.Count == 0)
         {
             state.LastCheckedAt = checkStartedAt;
@@ -115,14 +124,14 @@ public class PuneBidAlertService : IPuneBidAlertService
                 cancellationToken);
 
             _logger.LogInformation(
-                "No IT Pune/Nilgiris/Leh bids found. LastCheckedAt updated to {CheckStartedAt}.",
+                "No active IT Pune/Nilgiris/Leh bids found. " +
+                "LastCheckedAt updated to {CheckStartedAt}.",
                 checkStartedAt);
 
             return;
         }
 
-        // Determine the timestamp representing this particular
-        // bid version/change.
+        // Use the timestamp associated with this bid version.
         var candidates = matchingBids
             .Select(x => new
             {
@@ -133,17 +142,18 @@ public class PuneBidAlertService : IPuneBidAlertService
             })
             .ToList();
 
-        // Find which changes have already been successfully emailed.
         var bidIds = candidates
             .Select(x => x.Bid.Id)
             .Distinct()
             .ToList();
 
+        // Load existing notification history for these bid IDs.
         var existingAlerts = await _dbContext.PuneBidAlertSents
             .AsNoTracking()
             .Where(x => bidIds.Contains(x.BidId))
             .ToListAsync(cancellationToken);
 
+        // Send only versions that have not already been notified.
         var unsentCandidates = candidates
             .Where(candidate =>
                 !existingAlerts.Any(sent =>
@@ -153,7 +163,8 @@ public class PuneBidAlertService : IPuneBidAlertService
             .ToList();
 
         _logger.LogInformation(
-            "{Count} IT Pune/Nilgiris/Leh bid change(s) require email notification.",
+            "{Count} active IT Pune/Nilgiris/Leh bid change(s) " +
+            "require email notification.",
             unsentCandidates.Count);
 
         if (unsentCandidates.Count == 0)
@@ -164,15 +175,14 @@ public class PuneBidAlertService : IPuneBidAlertService
                 cancellationToken);
 
             _logger.LogInformation(
-                "All IT Pune/Nilgiris/Leh bid changes were already notified. " +
-                "LastCheckedAt updated to {CheckStartedAt}.",
+                "All eligible active IT Pune/Nilgiris/Leh bid changes " +
+                "were already notified. LastCheckedAt updated to {CheckStartedAt}.",
                 checkStartedAt);
 
             return;
         }
 
-        // Convert database entities into the DTO containing
-        // only the fields required by the email.
+        // Build the email DTO using only the fields required by the template.
         var emailBids = unsentCandidates
             .Select(x => new PuneBidAlertDto
             {
@@ -199,15 +209,13 @@ public class PuneBidAlertService : IPuneBidAlertService
             })
             .ToList();
 
-        // IMPORTANT:
-        // If sending fails, this method throws and LastCheckedAt
-        // is NOT updated. The next check will retry the email.
+        // If email sending fails, an exception is propagated.
+        // The checkpoint is not advanced, allowing a subsequent retry.
         await _emailService.SendPuneBidAlertAsync(
             emailBids,
             cancellationToken);
 
-        // Email was successfully sent.
-        // Now record every notified bid version.
+        // Record successfully emailed bid versions.
         var sentOn = DateTime.Now;
 
         foreach (var candidate in unsentCandidates)
@@ -232,15 +240,14 @@ public class PuneBidAlertService : IPuneBidAlertService
                 });
         }
 
-        // Only move the checkpoint after the email and audit
-        // records have been successfully prepared.
+        // Advance the checkpoint after successful email sending.
         state.LastCheckedAt = checkStartedAt;
 
         await _dbContext.SaveChangesAsync(
             cancellationToken);
 
         _logger.LogInformation(
-            "IT Pune/Nilgiris/Leh bid alert processing completed. " +
+            "Active IT Pune/Nilgiris/Leh bid alert processing completed. " +
             "Sent: {SentCount}. LastCheckedAt: {LastCheckedAt}.",
             unsentCandidates.Count,
             checkStartedAt);
@@ -249,13 +256,12 @@ public class PuneBidAlertService : IPuneBidAlertService
     private static string? GetMatchingLocation(
         GeMbidExtract bid)
     {
-        // Only the Location column is checked.
+        // Match only against the Location column.
         if (string.IsNullOrWhiteSpace(bid.Location))
         {
             return null;
         }
 
-        // Case-insensitive exact match.
         if (bid.Location.Equals(
                 "Pune",
                 StringComparison.OrdinalIgnoreCase))

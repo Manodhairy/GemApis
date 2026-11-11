@@ -1,12 +1,13 @@
 ﻿
-using GemApi.DTOs.Response;
-using GemApi.Settings;
-using Microsoft.Extensions.Options;
 using System.Globalization;
 using System.Net;
 using System.Net.Mail;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Encodings.Web;
+using GemApi.DTOs.Response;
+using GemApi.Settings;
+using Microsoft.Extensions.Options;
 
 namespace GemApi.Services;
 
@@ -220,10 +221,11 @@ public class PuneBidEmailService : IPuneBidEmailService
                         font-weight: bold;
                     }
 
-                    th:nth-child(1), td:nth-child(1) { width: 29%; }
-                    th:nth-child(2), td:nth-child(2) { width: 35%; }
-                    th:nth-child(3), td:nth-child(3) { width: 18%; }
-                    th:nth-child(4), td:nth-child(4) { width: 18%; }
+                    th:nth-child(1), td:nth-child(1) { width: 20%; }
+            th:nth-child(2), td:nth-child(2) { width: 25%; }
+            th:nth-child(3), td:nth-child(3) { width: 25%; }
+            th:nth-child(4), td:nth-child(4) { width: 15%; }
+            th:nth-child(5), td:nth-child(5) { width: 15%; }
 
                     a {
                         color: #0563c1;
@@ -305,6 +307,7 @@ public class PuneBidEmailService : IPuneBidEmailService
                 <thead>
                     <tr>
                         <th>Bid Number</th>
+            <th>Department</th>
                         <th>Item Category</th>
                         <th>Start Date</th>
                         <th>End Date</th>
@@ -316,7 +319,7 @@ public class PuneBidEmailService : IPuneBidEmailService
         foreach (var bid in locationBids)
         {
             sb.Append("<tr>");
-
+           
             sb.Append("<td>");
 
             if (!string.IsNullOrWhiteSpace(bid.PdfUrl) &&
@@ -338,6 +341,10 @@ public class PuneBidEmailService : IPuneBidEmailService
                 sb.Append(Encode(bid.BidNumber));
             }
 
+            sb.Append("</td>");
+            // Department
+            sb.Append("<td>");
+            sb.Append(Encode(bid.Department));
             sb.Append("</td>");
 
             sb.Append("<td>");
@@ -396,12 +403,14 @@ public class PuneBidEmailService : IPuneBidEmailService
         }
 
         sb.AppendLine($"📍 {location} Bids");
+      
         sb.AppendLine(new string('-', 30));
 
         foreach (var bid in locationBids)
         {
             sb.AppendLine($"Bid Number: {bid.BidNumber}");
             sb.AppendLine($"Category: {bid.CategoryKey}");
+            sb.AppendLine($"Department: {bid.Department}");
             sb.AppendLine($"Item Category: {bid.ItemCategory}");
             sb.AppendLine($"Start Date: {FormatDate(bid.CardStartDate)}");
             sb.AppendLine($"End Date: {FormatDate(bid.CardEndDate)}");
@@ -424,7 +433,9 @@ public class PuneBidEmailService : IPuneBidEmailService
 
         if (value is DateTime dateTime)
         {
-            return dateTime.ToString("dd-MMM-yyyy", CultureInfo.InvariantCulture);
+            return dateTime.ToString(
+                "dd-MMM-yyyy",
+                CultureInfo.InvariantCulture);
         }
 
         if (value is DateTimeOffset dateTimeOffset)
@@ -434,17 +445,20 @@ public class PuneBidEmailService : IPuneBidEmailService
                 CultureInfo.InvariantCulture);
         }
 
-        var text = Convert.ToString(value, CultureInfo.InvariantCulture);
+        var text = Convert.ToString(
+            value,
+            CultureInfo.InvariantCulture);
 
         if (string.IsNullOrWhiteSpace(text))
         {
             return "N/A";
         }
 
-        if (DateTime.TryParse(
+        if (DateTime.TryParseExact(
             text,
+            "yyyy-MM-dd HH:mm:ss",
             CultureInfo.InvariantCulture,
-            DateTimeStyles.AssumeLocal,
+            DateTimeStyles.None,
             out var parsedDate))
         {
             return parsedDate.ToString(

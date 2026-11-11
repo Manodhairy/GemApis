@@ -5,6 +5,7 @@ using GemApi.Services.Interfaces;
 using GemApi.Settings;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
+using System.Globalization;
 
 namespace GemApi.Services;
 
@@ -195,11 +196,19 @@ public class PuneBidAlertService : IPuneBidAlertService
                 Location =
                     x.Location,
 
+                //add here department to show in email 5/11/26
+                Department = x.Bid.CardDepartment,
+
+
                 CardStartDate =
-                    x.Bid.CardStartDate?.ToString(),
+    x.Bid.CardStartDate?.ToString(
+        "yyyy-MM-dd HH:mm:ss",
+        CultureInfo.InvariantCulture),
 
                 CardEndDate =
-                    x.Bid.CardEndDate?.ToString(),
+    x.Bid.CardEndDate?.ToString(
+        "yyyy-MM-dd HH:mm:ss",
+        CultureInfo.InvariantCulture),
 
                 CategoryKey =
                     x.Bid.CategoryKey,

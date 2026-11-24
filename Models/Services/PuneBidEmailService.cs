@@ -53,7 +53,7 @@ public class PuneBidEmailService : IPuneBidEmailService
             From = new MailAddress(
                 _settings.SenderEmail.Trim(),
                 _settings.SenderName),
-            Subject = $"Pune, Nilgiris and Leh Bids - {bids.Count} Bid(s)",
+            Subject = $"Pune, Nilgiris, Leh and West Bengal/Barrackpore Bids - {bids.Count} Bid(s)",
             SubjectEncoding = Encoding.UTF8,
             BodyEncoding = Encoding.UTF8,
             Body = plainText,
@@ -104,6 +104,82 @@ public class PuneBidEmailService : IPuneBidEmailService
         _logger.LogInformation(
             "Pune/Nilgiris/Leh bid alert email sent successfully for {Count} bid(s).",
             bids.Count);
+    }
+
+    public async Task SendDailySummaryAsync(
+        DateTime reportDate,
+        IReadOnlyDictionary<string, int> counts,
+        CancellationToken cancellationToken)
+    {
+        ValidateSettings();
+
+        var recipients = GetRecipients();
+
+        if (recipients.Count == 0)
+        {
+            throw new InvalidOperationException(
+                "No receiver email addresses are configured in PuneBidAlert:ReceiverEmails.");
+        }
+
+        int CountFor(string key) =>
+            counts.TryGetValue(key, out var value) ? value : 0;
+
+        var dateText = reportDate.ToString(
+            "dd-MMM-yyyy",
+            CultureInfo.InvariantCulture);
+
+        var total = counts.Values.Sum();
+
+        var locationParts =
+            $"Pune {CountFor("Pune")} | " +
+            $"Nilgiris {CountFor("Nilgiris")} | " +
+            $"Leh {CountFor("Leh")} | " +
+            $"West Bengal/Barrackpore {CountFor("North 24 Parganas")}";
+
+        var summaryLine = total == 0
+            ? $"{dateText}: No new bids found | {locationParts}"
+            : $"{dateText}: {locationParts} | Total {total}";
+
+        using var message = new MailMessage
+        {
+            From = new MailAddress(
+                _settings.SenderEmail.Trim(),
+                _settings.SenderName),
+            Subject = $"Daily Bid Summary - {dateText}",
+            SubjectEncoding = Encoding.UTF8,
+            BodyEncoding = Encoding.UTF8,
+            Body = summaryLine,
+            IsBodyHtml = false
+        };
+
+        foreach (var recipient in recipients)
+        {
+            message.To.Add(recipient);
+        }
+
+        if (!string.IsNullOrWhiteSpace(_settings.ReplyToEmail))
+        {
+            message.ReplyToList.Add(
+                new MailAddress(_settings.ReplyToEmail.Trim()));
+        }
+
+        using var smtpClient = new SmtpClient(
+            _settings.SmtpHost.Trim(),
+            _settings.SmtpPort)
+        {
+            EnableSsl = _settings.EnableSsl,
+            UseDefaultCredentials = false,
+            Credentials = new NetworkCredential(
+                _settings.SmtpUsername.Trim(),
+                _settings.SmtpPassword)
+        };
+
+        _logger.LogInformation(
+            "Sending daily bid summary for {ReportDate} to {RecipientCount} recipient(s).",
+            dateText,
+            recipients.Count);
+
+        await smtpClient.SendMailAsync(message, cancellationToken);
     }
 
     private void ValidateSettings()
@@ -167,7 +243,7 @@ public class PuneBidEmailService : IPuneBidEmailService
             <head>
                 <meta charset="UTF-8">
                 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                <title>Pune, Nilgiris and Leh Bids</title>
+                <title>Pune, Nilgiris, Leh and West Bengal/Barrackpore Bids</title>
                 <style>
                     body {
                         margin: 0;
@@ -263,12 +339,13 @@ public class PuneBidEmailService : IPuneBidEmailService
             </head>
             <body>
             <div class="email-container">
-            <h2>Pune, Nilgiris and Leh Bids</h2>
+            <h2>Pune, Nilgiris, Leh and West Bengal/Barrackpore Bids</h2>
             """);
 
         AppendBidTable(sb, bids, "Pune", "📍 Pune Bids");
         AppendBidTable(sb, bids, "Nilgiris", "📍 Nilgiris Bids");
         AppendBidTable(sb, bids, "Leh", "📍 Leh Bids");
+        AppendBidTable(sb, bids, "North 24 Parganas", "📍 West Bengal / Barrackpore Bids");
 
         sb.Append("""
             </div>
@@ -374,13 +451,14 @@ public class PuneBidEmailService : IPuneBidEmailService
     {
         var sb = new StringBuilder();
 
-        sb.AppendLine("Pune, Nilgiris and Leh Bids");
+        sb.AppendLine("Pune, Nilgiris, Leh and West Bengal/Barrackpore Bids");
         sb.AppendLine(new string('=', 35));
         sb.AppendLine();
 
         AppendPlainTextBids(sb, bids, "Pune");
         AppendPlainTextBids(sb, bids, "Nilgiris");
         AppendPlainTextBids(sb, bids, "Leh");
+        AppendPlainTextBids(sb, bids, "North 24 Parganas");
 
         return sb.ToString();
     }
@@ -402,7 +480,11 @@ public class PuneBidEmailService : IPuneBidEmailService
             return;
         }
 
-        sb.AppendLine($"📍 {location} Bids");
+        var displayName = location == "North 24 Parganas"
+            ? "West Bengal / Barrackpore"
+            : location;
+
+        sb.AppendLine($"📍 {displayName} Bids");
       
         sb.AppendLine(new string('-', 30));
 

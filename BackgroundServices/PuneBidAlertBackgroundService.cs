@@ -51,6 +51,31 @@ public class PuneBidAlertBackgroundService : BackgroundService
                     "Error occurred during Pune bid alert check.");
             }
 
+            // Daily morning summary of yesterday's bids. Kept in its own
+            // try/catch so a failure here never affects the normal alerts.
+            try
+            {
+                using var summaryScope = _scopeFactory.CreateScope();
+
+                var summaryService =
+                    summaryScope.ServiceProvider
+                        .GetRequiredService<IPuneBidAlertService>();
+
+                await summaryService
+                    .SendDailySummaryIfDueAsync(stoppingToken);
+            }
+            catch (OperationCanceledException)
+                when (stoppingToken.IsCancellationRequested)
+            {
+                break;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(
+                    ex,
+                    "Error occurred while sending the daily bid summary.");
+            }
+
             try
             {
                 await Task.Delay(

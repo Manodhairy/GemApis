@@ -292,6 +292,103 @@ public class PuneBidAlertService : IPuneBidAlertService
             return "Leh";
         }
 
+        // Shown in the email as "West Bengal / Barrackpore".
+        if (bid.Location.Trim().Equals(
+                "North 24 Parganas",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return "North 24 Parganas";
+        }
+
         return null;
+    }
+
+    public async Task SendDailySummaryIfDueAsync(
+        CancellationToken cancellationToken)
+    {
+        if (!_settings.DailySummaryEnabled)
+        {
+            return;
+        }
+
+        if (!TimeSpan.TryParse(
+                _settings.DailySummaryTime,
+                CultureInfo.InvariantCulture,
+                out var sendTime))
+        {
+            sendTime = new TimeSpan(8, 0, 0);
+        }
+
+        var now = DateTime.Now;
+
+        // Not yet time to send today's morning summary.
+        if (now.TimeOfDay < sendTime)
+        {
+            return;
+        }
+
+        // The summary always reports on yesterday (the last full day).
+        var reportDate = now.Date.AddDays(-1);
+
+        var alreadySent = await _dbContext.PuneBidDailySummarySents
+            .AnyAsync(
+                x => x.ReportDate == reportDate,
+                cancellationToken);
+
+        if (alreadySent)
+        {
+            return;
+        }
+
+        var dayStart = reportDate;
+        var dayEnd = reportDate.AddDays(1);
+
+        // Bids that were actually emailed during the reported day.
+        var rows = await (
+            from sent in _dbContext.PuneBidAlertSents.AsNoTracking()
+            where sent.SentOn >= dayStart && sent.SentOn < dayEnd
+            join bid in _dbContext.GeMbidExtracts.AsNoTracking()
+                on sent.BidId equals bid.Id
+            select new { sent.BidId, bid.Location })
+            .ToListAsync(cancellationToken);
+
+        // Count each bid once per location.
+        var distinctRows = rows
+            .GroupBy(x => x.BidId)
+            .Select(g => g.First())
+            .ToList();
+
+        int CountFor(string location) => distinctRows.Count(x =>
+            string.Equals(
+                x.Location?.Trim(),
+                location,
+                StringComparison.OrdinalIgnoreCase));
+
+        var counts = new Dictionary<string, int>
+        {
+            ["Pune"] = CountFor("Pune"),
+            ["Nilgiris"] = CountFor("Nilgiris"),
+            ["Leh"] = CountFor("Leh"),
+            ["North 24 Parganas"] = CountFor("North 24 Parganas")
+        };
+
+        await _emailService.SendDailySummaryAsync(
+            reportDate,
+            counts,
+            cancellationToken);
+
+        _dbContext.PuneBidDailySummarySents.Add(
+            new PuneBidDailySummarySent
+            {
+                ReportDate = reportDate,
+                SentOn = DateTime.Now
+            });
+
+        await _dbContext.SaveChangesAsync(cancellationToken);
+
+        _logger.LogInformation(
+            "Daily bid summary for {ReportDate:dd-MMM-yyyy} sent. Total bids: {Total}.",
+            reportDate,
+            counts.Values.Sum());
     }
 }

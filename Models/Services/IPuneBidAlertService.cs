@@ -3,4 +3,6 @@
 public interface IPuneBidAlertService
 {
     Task CheckForPuneBidsAsync(CancellationToken cancellationToken);
+
+    Task SendDailySummaryIfDueAsync(CancellationToken cancellationToken);
 }

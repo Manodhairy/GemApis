@@ -24,6 +24,7 @@ public partial class ApplicationDbContext : DbContext
 
     public virtual DbSet<PuneBidAlertSent> PuneBidAlertSents { get; set; }
     public virtual DbSet<PuneBidAlertState> PuneBidAlertStates { get; set; }
+    public virtual DbSet<PuneBidDailySummarySent> PuneBidDailySummarySents { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
